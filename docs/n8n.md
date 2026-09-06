@@ -34,4 +34,10 @@ If n8n runs in Docker and the gateway doesn't (or vice versa), `localhost` won't
 
 ## Status
 
-The routes and both integration paths above are implemented and covered by the automated test suite (`tests/openai-compat.test.ts`) against a fake Claude backend, and manually smoke-tested against a live account (see `README.md`). A live n8n workflow run against a running gateway instance is a good next manual verification step if you rely on this path heavily — it isn't part of this repo's own automated tests since n8n itself isn't a dependency here.
+Live-verified (2026-09-06) against a real n8n instance (`n8n@2.37.10`, CLI-driven: `import:workflow` + `execute --id`) and the real gateway backed by a live Claude account — not just the automated test suite:
+
+- **Generic HTTP Request node → `/v1/chat/completions`**: success, model replied correctly.
+- **Generic HTTP Request node → `/v1/messages`**: success, model replied correctly.
+- **Native path**: `@n8n/n8n-nodes-langchain.lmChatOpenAi` ("OpenAI Chat Model") feeding a `chainLlm` ("Basic LLM Chain") node, credential type `openAiApi` with its **Base URL** field pointed at `http://<gateway>:8787/v1` — success, token usage tracked by n8n's own tracing metadata (`llm.tokens.in/out`). This exercises LangChain's own OpenAI-compatible client under the hood, a stronger compatibility proof than a raw SDK smoke test.
+
+This closes PRD M7 and §26's n8n acceptance checkbox for host-mode networking. Docker-mode n8n (`host.docker.internal` / shared compose network, per the section above) is documented but not separately live-tested with two containers — same status as the gateway's own `docker compose up`, still pending a live run.
