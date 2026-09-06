@@ -72,7 +72,7 @@ Live-verified (2026-09-06): built and ran the image, confirmed `claude_auth_stat
 
 ## n8n integration
 
-See `docs/n8n.md` — either n8n's native "OpenAI Chat Model" node pointed at `/v1` (preferred), or a generic HTTP Request node against either route. Both host-mode and Docker-mode networking are live-verified.
+See `docs/n8n.md` — either n8n's native "OpenAI Chat Model" node pointed at `/v1` (preferred), or a generic HTTP Request node against either route. Both host-mode and Docker-mode networking are live-verified, **including the AI Agent node driving real tool use** (a genuine, unscripted propose → n8n-executes-locally → continue loop through this gateway — see `docs/n8n.md`'s Status section).
 
 ## Tool/function-calling (Phase 3)
 
