@@ -1,0 +1,137 @@
+openapi: 3.0.3
+info:
+  title: PIGSAO API
+  description: Personal Gateway for Anthropic/OpenAI API
+  version: 0.0.1
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:8787
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check (unauthenticated)
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  service: { type: string }
+                  version: { type: string }
+                  claude_auth_status: { type: string, enum: [ok, error] }
+                  active_requests: { type: integer }
+                  queued_requests: { type: integer }
+                  routes:
+                    type: object
+                    properties:
+                      openai_compatible: { type: string }
+                      anthropic_compatible: { type: string }
+  /v1/models:
+    get:
+      summary: List the model alias allow-list
+      responses:
+        '200':
+          description: OK
+  /v1/chat/completions:
+    post:
+      summary: OpenAI Chat Completions-compatible
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model: { type: string }
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role: { type: string, enum: [system, user, assistant] }
+                      content: {}
+                max_tokens: { type: integer, description: 'Optional — server picks a default if omitted' }
+                temperature: { type: number }
+                stream: { type: boolean }
+                session_id: { type: string, description: 'Gateway extension — optional' }
+      responses:
+        '200': { description: Chat completion (or SSE stream if stream=true) }
+        '400': { description: invalid_request_error }
+        '401': { description: authentication_error }
+        '429': { description: rate_limit_error or usage_limit_error }
+        '502': { description: provider_error }
+        '503': { description: credential_error }
+  /v1/messages:
+    post:
+      summary: Anthropic Messages-compatible
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, max_tokens, messages]
+              properties:
+                model: { type: string }
+                max_tokens: { type: integer }
+                system: { type: string }
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role: { type: string, enum: [user, assistant] }
+                      content: {}
+                stream: { type: boolean }
+                session_id: { type: string, description: 'Gateway extension — optional' }
+      responses:
+        '200': { description: 'Message (or SSE stream if stream=true)' }
+        '400': { description: invalid_request_error }
+        '401': { description: authentication_error }
+        '429': { description: rate_limit_error or usage_limit_error }
+        '502': { description: provider_error }
+        '503': { description: credential_error }
+  /v1/sessions:
+    post:
+      summary: Create a session_id for the extension mode
+      responses:
+        '201': { description: Created }
+  /v1/sessions/{id}:
+    get:
+      summary: Get session metadata
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+        '400': { description: invalid_request_error (not found) }
+    delete:
+      summary: Delete a session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+        '400': { description: invalid_request_error (not found) }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key

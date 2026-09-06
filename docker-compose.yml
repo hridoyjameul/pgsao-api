@@ -1,0 +1,23 @@
+services:
+  gateway:
+    build: .
+    image: pigsao-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # The app inside the container must bind 0.0.0.0 (its own network
+      # namespace's loopback is NOT reachable from outside the container) —
+      # the HOST-side port mapping below is what actually stays restricted
+      # to loopback (PRD R5/§19: never publish a bare 8787:8787).
+      - HOST=0.0.0.0
+    ports:
+      - '127.0.0.1:8787:8787'
+    volumes:
+      - ./data:/app/data
+      # Read-only mount of your Claude Code credentials so the Agent SDK
+      # inside the container can authenticate as the same account you're
+      # already logged into on the host. Adjust the source path if your
+      # Claude config lives somewhere else (e.g. on Windows this is usually
+      # %USERPROFILE%\.claude — set CLAUDE_CONFIG_DIR accordingly).
+      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/root/.claude:ro

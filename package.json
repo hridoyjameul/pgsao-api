@@ -1,0 +1,40 @@
+{
+  "name": "pigsao-api",
+  "version": "0.0.1",
+  "description": "Personal Gateway for Anthropic/OpenAI API — expose your own Claude subscription behind spec-accurate OpenAI Chat Completions and Anthropic Messages compatible HTTP surfaces.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "spike:01": "tsx spikes/spike-01-single-request.ts",
+    "spike:02": "tsx spikes/spike-02-resume-isolation.ts",
+    "spike:03": "tsx spikes/spike-03-concurrency-ceiling.ts",
+    "spike:04": "tsx spikes/spike-04-credential-expiry.ts",
+    "spike:05": "tsx spikes/spike-05-format-roundtrip.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.10.0",
+    "openai": "^7.10.0",
+    "@anthropic-ai/sdk": "^0.124.0",
+    "vitest": "^3.0.0",
+    "supertest": "^7.0.0",
+    "@types/supertest": "^6.0.2",
+    "pino-pretty": "^13.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.263",
+    "fastify": "^5.2.0",
+    "zod": "^4.0.0",
+    "pino": "^9.6.0"
+  }
+}
