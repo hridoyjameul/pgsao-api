@@ -4,6 +4,7 @@ import { OpenAiChatCompletionsRequestSchema } from '../schemas/openai-messages.j
 import { openAiRequestToInternal, internalResponseToOpenAi, errorToOpenAiBody, toOpenAiChunks } from '../translator/openai.js';
 import { ApiError } from '../errors/api-error.js';
 import { generateRequestId } from '../utils/ids.js';
+import { assertToolSchemasSupported } from '../utils/json-schema-to-zod.js';
 import type { InternalClaudeRequest } from '../providers/types.js';
 
 function sendOpenAiError(reply: FastifyReply, err: unknown): void {
@@ -44,6 +45,14 @@ export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: Gateway
       const draft = openAiRequestToInternal(body);
       const { providerSessionId } = sessionManager.resolveSession(body.session_id);
       const internalRequest: InternalClaudeRequest = { ...draft, resumeSessionId: providerSessionId };
+
+      // Validate tool schemas up front, before any SSE headers are sent —
+      // the lazy conversion inside providers/claude.ts otherwise throws only
+      // once claudeProvider.streamMessage() actually builds the tool
+      // interception, by which point writeHead(200, ...) below has already
+      // committed the response and an ApiError can no longer render as a
+      // real error (see json-schema-to-zod.ts's assertToolSchemasSupported).
+      if (internalRequest.tools?.length) assertToolSchemasSupported(internalRequest.tools);
 
       if (body.stream) {
         reply.raw.writeHead(200, {

@@ -22,12 +22,12 @@ export interface JsonSchemaObject {
   [key: string]: unknown;
 }
 
-const UNSUPPORTED_KEYS = ['oneOf', 'anyOf', 'allOf', 'not', '$ref', 'if', 'then', 'else'] as const;
+const UNSUPPORTED_KEYS = ['oneOf', 'allOf', 'not', '$ref', 'if', 'then', 'else'] as const;
 
 function assertSupported(schema: JsonSchemaObject, path: string): void {
   for (const key of UNSUPPORTED_KEYS) {
     if (key in schema) {
-      throw new ApiError('invalid_request_error', `Unsupported JSON Schema construct "${key}" in tool parameter schema at "${path}" — only a plain object/string/number/integer/boolean/array/enum subset is supported`, { param: path });
+      throw new ApiError('invalid_request_error', `Unsupported JSON Schema construct "${key}" in tool parameter schema at "${path}" — only a plain object/string/number/integer/boolean/array/enum/anyOf subset is supported`, { param: path });
     }
   }
 }
@@ -36,7 +36,15 @@ function convert(schema: JsonSchemaObject, path: string): z.ZodTypeAny {
   assertSupported(schema, path);
 
   let zodType: z.ZodTypeAny;
-  if (schema.enum) {
+  if (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
+    // Common real-world pattern (e.g. pydantic-generated "X | None" schemas,
+    // or a param that accepts either a plain value or a list of them) — a
+    // plain union of the supported-subset branches, not a full JSON Schema
+    // combinator implementation (oneOf/allOf's cross-branch validation
+    // semantics stay unsupported, see UNSUPPORTED_KEYS above).
+    const variants = (schema.anyOf as JsonSchemaObject[]).map((s, i) => convert(s, `${path}(anyOf[${i}])`));
+    zodType = variants.length === 1 ? variants[0]! : z.union(variants as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+  } else if (schema.enum) {
     const values = schema.enum as [string, ...string[]];
     zodType = z.enum(values);
   } else {
@@ -52,6 +60,9 @@ function convert(schema: JsonSchemaObject, path: string): z.ZodTypeAny {
         break;
       case 'boolean':
         zodType = z.boolean();
+        break;
+      case 'null':
+        zodType = z.null();
         break;
       case 'array':
         zodType = z.array(schema.items ? convert(schema.items, `${path}[]`) : z.unknown());
@@ -80,4 +91,21 @@ export function jsonSchemaObjectToZodRawShape(schema: JsonSchemaObject, path = '
     shape[key] = zodType;
   }
   return shape;
+}
+
+/**
+ * Eagerly validates a set of caller-declared tool parameter schemas,
+ * throwing the same ApiError jsonSchemaObjectToZodRawShape would throw
+ * lazily. Call this BEFORE writing SSE headers on a streaming response —
+ * the lazy conversion normally happens deep inside providers/claude.ts's
+ * tool-interception setup, which for a streaming call runs after
+ * `reply.raw.writeHead(200, ...)` has already committed the response; an
+ * ApiError thrown at that point can no longer render as a real error
+ * response and instead surfaces to the client as a silently-closed, empty
+ * stream (see routes/*.ts's pre-stream validation call).
+ */
+export function assertToolSchemasSupported(tools: { name: string; parameters: JsonSchemaObject }[]): void {
+  for (const t of tools) {
+    jsonSchemaObjectToZodRawShape(t.parameters, `tools.${t.name}.parameters`);
+  }
 }

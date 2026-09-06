@@ -4,6 +4,7 @@ import { AnthropicMessagesRequestSchema } from '../schemas/anthropic-messages.js
 import { anthropicRequestToInternal, internalResponseToAnthropic, errorToAnthropicBody, toAnthropicSSE } from '../translator/anthropic.js';
 import { ApiError } from '../errors/api-error.js';
 import { generateRequestId } from '../utils/ids.js';
+import { assertToolSchemasSupported } from '../utils/json-schema-to-zod.js';
 import type { InternalClaudeRequest } from '../providers/types.js';
 
 function sendAnthropicError(reply: FastifyReply, err: unknown): void {
@@ -44,6 +45,10 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
       const draft = anthropicRequestToInternal(body);
       const { providerSessionId } = sessionManager.resolveSession(body.session_id);
       const internalRequest: InternalClaudeRequest = { ...draft, resumeSessionId: providerSessionId };
+
+      // Validate tool schemas up front, before any SSE headers are sent —
+      // see routes/openai-compat.ts's identical guard for why.
+      if (internalRequest.tools?.length) assertToolSchemasSupported(internalRequest.tools);
 
       if (body.stream) {
         reply.raw.writeHead(200, {
