@@ -72,12 +72,43 @@ Live-verified (2026-09-06): built and ran the image, confirmed `claude_auth_stat
 
 ## n8n integration
 
-See `docs/n8n.md` — either n8n's native "OpenAI Chat Model" node pointed at `/v1` (preferred), or a generic HTTP Request node against either route.
+See `docs/n8n.md` — either n8n's native "OpenAI Chat Model" node pointed at `/v1` (preferred), or a generic HTTP Request node against either route. Both host-mode and Docker-mode networking are live-verified.
+
+## Tool/function-calling (Phase 3)
+
+Both routes support `tools` — the model proposes a call (`stop_reason`/`finish_reason` = `tool_use`/`tool_calls`), **your code executes it**, and you report the result back on your next call (same request shape real OpenAI/Anthropic clients already use — no gateway-specific extension). Live-verified end-to-end (2026-09-06) on both routes, streaming and non-streaming.
+
+```bash
+# 1. Propose
+curl http://localhost:8787/v1/messages -H "x-api-key: $GATEWAY_API_KEY" -H "Content-Type: application/json" -d '{
+  "model": "claude-via-gateway", "max_tokens": 200,
+  "tools": [{"name":"get_weather","description":"Get current weather","input_schema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],
+  "messages": [{"role":"user","content":"What is the weather in Paris?"}]
+}'
+# -> {"content":[{"type":"tool_use","id":"toolu_...","name":"get_weather","input":{"city":"Paris"}}],"stop_reason":"tool_use",...}
+
+# 2. Continue, with your own tool_result appended
+curl http://localhost:8787/v1/messages -H "x-api-key: $GATEWAY_API_KEY" -H "Content-Type: application/json" -d '{
+  "model": "claude-via-gateway", "max_tokens": 200,
+  "tools": [...same tools...],
+  "messages": [
+    {"role":"user","content":"What is the weather in Paris?"},
+    {"role":"assistant","content":[{"type":"tool_use","id":"toolu_...","name":"get_weather","input":{"city":"Paris"}}]},
+    {"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_...","content":"Sunny, 22C"}]}
+  ]
+}'
+```
+
+**Known limitations:**
+- Tool-augmented turns always use the stateless flatten-and-restart path — the `session_id` extension doesn't mix with tool use yet (see `spikes/FINDINGS.md`'s Phase 3 spike for why: resuming permanently poisons a tool_use_id's resolution once a call is denied).
+- `tool_choice` only supports `"auto"` and `"none"` — forcing a specific named tool isn't supported yet (rejected with a clear error, not silently ignored).
+- Parallel tool calls (the model calling more than one tool in the same turn) haven't been tested.
+- `usage` on a tool-call-stop response is `0`/`0` — the SDK doesn't expose real token counts on the code path that captures a proposed call.
+- Tool parameter schemas support the realistic JSON Schema subset tools actually use (object/string/number/integer/boolean/array/enum) — `oneOf`/`anyOf`/`allOf`/`$ref`/conditionals are rejected with a clear error.
 
 ## Known MVP limitations
 
-- **No tool/function-calling yet** on either route (`tools`/`tool_choice`/`functions`/`function_call` are rejected explicitly with a clear error, not silently dropped) — deferred to a later phase.
-- **Text-only** — image/vision content blocks are rejected the same way.
+- **Text-only** — image/vision content blocks are rejected explicitly, not silently dropped.
 - Two-model-call cost/token quirk documented in `spikes/FINDINGS.md`: the gateway reports only the main-loop `usage`, not the SDK's internal auxiliary-model overhead.
 
 ## Development

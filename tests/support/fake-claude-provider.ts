@@ -22,6 +22,34 @@ export class FakeClaudeProvider implements ClaudeProvider {
     this.lastRequest = request;
     const sessionId = request.resumeSessionId ?? `fake-session-${++this.sessionCounter}`;
 
+    // Phase 3 (Phase 3/NG6) tool-calling simulation: if the caller declared
+    // tools and the flattened history doesn't yet contain a tool result,
+    // "decide" to call the first declared tool — mirroring the real
+    // propose/continue round trip (spikes/FINDINGS.md's Phase 3 spike)
+    // without spending real Claude usage.
+    if (request.tools?.length) {
+      const flattenedAll = request.messages.map((m) => m.content).join('\n');
+      const toolResultMatch = flattenedAll.match(/\[tool result for tool_use_id [^\]]*?:\s*([\s\S]*?)\]/);
+      if (!toolResultMatch) {
+        const t = request.tools[0]!;
+        return {
+          sessionId,
+          model: request.model ?? 'claude-sonnet-5',
+          text: '',
+          toolCalls: [{ id: 'fake_tool_call_1', name: t.name, input: {} }],
+          stopReason: 'tool_use',
+          usage: { inputTokens: 10, outputTokens: 5 },
+        };
+      }
+      return {
+        sessionId,
+        model: request.model ?? 'claude-sonnet-5',
+        text: `Tool result received: ${toolResultMatch[1]!.trim()}`,
+        stopReason: 'end_turn',
+        usage: { inputTokens: 10, outputTokens: 8 },
+      };
+    }
+
     // Minimal "memory" so session-isolation tests can verify resume behavior
     // without a live Claude account: remember the last user message per
     // session id, and echo it back when asked "what did I just say?". The
@@ -48,8 +76,12 @@ export class FakeClaudeProvider implements ClaudeProvider {
   async *streamMessage(request: InternalClaudeRequest): AsyncIterable<InternalClaudeEvent> {
     const response = await this.sendMessage(request);
     yield { type: 'start', sessionId: response.sessionId, model: response.model };
-    for (const word of response.text.split(' ')) {
-      yield { type: 'text_delta', text: word + ' ' };
+    if (response.toolCalls?.length) {
+      yield { type: 'tool_calls', toolCalls: response.toolCalls };
+    } else {
+      for (const word of response.text.split(' ')) {
+        yield { type: 'text_delta', text: word + ' ' };
+      }
     }
     yield { type: 'stop', stopReason: response.stopReason, usage: response.usage };
   }

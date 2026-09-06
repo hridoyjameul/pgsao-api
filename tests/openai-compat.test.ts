@@ -31,15 +31,7 @@ describe('POST /v1/chat/completions (OpenAI-compatible)', () => {
     expect(completion.choices[0]?.message.content).toBeTruthy();
   });
 
-  it('tools present -> invalid_request_error (NG6 not yet supported)', async () => {
-    await expect(
-      client.chat.completions.create({
-        model: 'claude-via-gateway',
-        messages: [{ role: 'user', content: 'Hi' }],
-        tools: [{ type: 'function', function: { name: 'noop', parameters: {} } }],
-      } as any)
-    ).rejects.toMatchObject({ status: 400 });
-  });
+  // Tool-calling itself is exercised in tests/tool-calling.test.ts (Phase 3/NG6).
 
   it('auth via Authorization: Bearer succeeds (this route\'s "natural" header)', async () => {
     const res = await fetch(`${ctx.baseUrl}/v1/chat/completions`, {

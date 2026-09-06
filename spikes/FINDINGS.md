@@ -92,6 +92,27 @@ This was an open design question the original plan didn't fully resolve: `query(
 
 Fetched `support.claude.com`'s Agent SDK usage-policy article live (2026-09-06): as of the June 15, 2026 pause, Agent SDK/`claude -p`/third-party-app usage still draws from the subscription's normal plan usage limits — **no separate credit pool exists**. Matches PRD §1.4's assumption exactly; no design change needed. Re-check this article again before a public Phase 1 release in case Anthropic ships the "better support" update they say is pending.
 
+## Phase 3 spike — tool/function-calling IS feasible, but only via flatten-and-restart (not resume)
+
+`spike-06-tool-calling.ts` tested whether the gateway can support real OpenAI/Anthropic-style tool-calling (model proposes a call, turn ends immediately with `stop_reason`/`finish_reason` = `tool_use`/`tool_calls`, and EXECUTION is entirely the caller's job) against the Agent SDK's `query()`, which is fundamentally an autonomous agent loop (executes tools itself, keeps going) — a real architectural mismatch worth spiking before writing production code, same as Phase 0.
+
+**Propose half — works, but always ends in an "error" result (expected, not a real failure):**
+
+Register the caller's tool via `createSdkMcpServer` + `tool()` (Zod raw-shape schema — caller's JSON Schema `tools`/`input_schema` needs converting), set `tools: []` (no built-ins), and supply a `canUseTool` callback that captures `(toolName, input, toolUseID)` from its own arguments and denies. The model DOES emit a proper `tool_use` content block and the SDK's own `permission_denials` array on the result carries the exact same info — confirmed twice. **But** the underlying query always terminates as `is_error: true`, `subtype: 'error_during_execution'`, `terminal_reason: 'aborted_streaming'`, `stop_reason: null` — whether denying plainly, denying with `PermissionResult.interrupt: true`, or calling the `Query` object's own `.interrupt()` control method from inside `canUseTool`. None of these produce a clean stop. **Design implication:** treat this specific error shape as an expected, successful "tool_use stop" as long as a tool call was actually captured (via the `canUseTool` closure, not by parsing the failed result) — only propagate a real `provider_error` when the query errors AND no tool call was captured.
+
+**Continuation half — resume() is poisoned by the denial; flatten-and-restart works cleanly:**
+
+Naively `resume()`-ing the same session and injecting a synthetic `tool_result` content block (via streaming input mode, a legitimate `role: 'user'` `MessageParam` with block content — unlike the illegal `role: 'assistant'` hack from spike-01, this one is accepted) does **not** work: the model treats the tool call as permanently "rejected/cancelled" no matter what result is injected afterward. Root cause: the SDK's `permission_denials` mechanism writes a canonical denial resolution for that `tool_use_id` into the session's persisted transcript when the propose-phase query errors out; a later injected tool_result for the same id doesn't override it. Confirmed with and without re-registering the same `mcpServers` config on resume — same outcome either way.
+
+**What does work, cleanly (`is_error: false`, `subtype: 'success'`, correct answer):** don't resume at all. Flatten the ENTIRE conversation — original user turn, a textual description of the assistant's tool call, and the tool result — into one prompt string for a **fresh, non-resumed** `query()` (with the same tool re-registered in case of a follow-up call). This is the exact same "flatten to prompt text" technique already proven for plain multi-turn chat in spike-01/FINDINGS — tool-calling continuations are just another instance of it, not a new mechanism.
+
+**Implemented and live-verified end-to-end (2026-09-06)**, both routes, non-streaming and streaming, propose and continuation — real Claude correctly proposes `get_weather(city=...)` and correctly incorporates an injected tool result on the very next (fresh) call. One real bug found and fixed during live streaming verification: in `streamMessage`, the underlying query yields its terminal `result` message (from which the tool-call info is emitted) and THEN throws on the next iteration (the same "always ends in an error after a captured call" behavior as the non-streaming path) — without a guard, both the normal-path emission and the catch-block's emission fired, duplicating every `tool_calls`/`stop` event. Fixed with a `toolCallsEmitted` flag so the catch block only emits if the normal path didn't already.
+
+**Binding design for Phase 3, consistent with the existing stateless architecture:**
+- Tool-augmented turns always use the flatten-and-restart path, never `resume()`. This means the `session_id` extension (§7.C) and tool-calling don't mix in the initial implementation — document as a known limitation rather than silently mishandling it.
+- Needs a JSON-Schema-to-Zod conversion step for caller-supplied `tools`/`input_schema` (OpenAI and Anthropic tool schemas are JSON Schema; `createSdkMcpServer`/`tool()` require a Zod raw shape) — a new, real dependency/complexity surface, not just wiring.
+- Parallel tool calls in one turn (the model calling more than one tool at once) were not tested — `canUseTool` fires once per call; the capture logic needs to collect all calls made before the interrupt takes effect, not just the first.
+
 ## Phase 0 exit criteria — all six closed
 
 1. Single request works reliably — `spike-01` part 1a. ✓

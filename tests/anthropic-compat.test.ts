@@ -33,16 +33,7 @@ describe('POST /v1/messages (Anthropic-compatible)', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('tools present -> invalid_request_error (NG6 not yet supported)', async () => {
-    await expect(
-      client.messages.create({
-        model: 'claude-via-gateway',
-        max_tokens: 256,
-        messages: [{ role: 'user', content: 'Hi' }],
-        tools: [{ name: 'noop', input_schema: { type: 'object' } }],
-      } as any)
-    ).rejects.toMatchObject({ status: 400 });
-  });
+  // Tool-calling itself is exercised in tests/tool-calling.test.ts (Phase 3/NG6).
 
   it('auth via x-api-key succeeds (the route\'s "natural" header)', async () => {
     const res = await fetch(`${ctx.baseUrl}/v1/messages`, {

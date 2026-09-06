@@ -17,7 +17,7 @@ Both headers work on both compat routes regardless of which one "naturally" goes
 
 ## `POST /v1/chat/completions` — OpenAI-compatible
 
-Required: `model`, `messages`. Optional: `max_tokens` (server picks a default if omitted), `temperature`, `stream`, `session_id` (extension). Rejects `tools`/`tool_choice`/`functions`/`function_call` with `invalid_request_error`.
+Required: `model`, `messages`. Optional: `max_tokens` (server picks a default if omitted), `temperature`, `stream`, `session_id` (extension), `tools`/`tool_choice` (Phase 3 — see below). Rejects the deprecated `functions`/`function_call` fields with `invalid_request_error`.
 
 Error shape (no top-level wrapper):
 ```json
@@ -26,7 +26,7 @@ Error shape (no top-level wrapper):
 
 ## `POST /v1/messages` — Anthropic-compatible
 
-Required: `model`, `max_tokens`, `messages`. Optional: `system`, `stream`, `session_id` (extension). Rejects `tools`/`tool_choice` the same way.
+Required: `model`, `max_tokens`, `messages`. Optional: `system`, `stream`, `session_id` (extension), `tools`/`tool_choice` (Phase 3 — see below).
 
 Error shape (top-level wrapper required):
 ```json
@@ -51,6 +51,10 @@ Lists the model alias allow-list (`src/config/models.ts`) — not an open passth
 ## `POST /v1/sessions`, `GET /v1/sessions/:id`, `DELETE /v1/sessions/:id`
 
 Explicit lifecycle management for the `session_id` extension. Not a required precondition — passing an unseen `session_id` directly to either compat route auto-creates it.
+
+## Tool/function-calling (Phase 3, PRD §23/NG6)
+
+Standard, unmodified real-API behavior — the model proposes a call, execution is entirely the caller's job, and the caller reports the result back on its next request. No gateway-specific extension. `stop_reason`/`finish_reason` becomes `tool_use`/`tool_calls` when the model wants to call a tool. `tool_choice` supports only `"auto"` (default) and `"none"` — forcing a specific named tool is rejected with `invalid_request_error`. See `README.md`'s Tool/function-calling section for a worked curl example and known limitations (no mixing with `session_id`/resume, parallel calls untested, tool parameter schemas support a realistic JSON Schema subset).
 
 ## Streaming
 

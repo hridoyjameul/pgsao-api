@@ -63,6 +63,8 @@ paths:
                 temperature: { type: number }
                 stream: { type: boolean }
                 session_id: { type: string, description: 'Gateway extension — optional' }
+                tools: { type: array, description: 'Phase 3 — OpenAI function-tool definitions' }
+                tool_choice: { description: 'Only "auto" (default) and "none" are supported' }
       responses:
         '200': { description: Chat completion (or SSE stream if stream=true) }
         '400': { description: invalid_request_error }
@@ -93,6 +95,8 @@ paths:
                       content: {}
                 stream: { type: boolean }
                 session_id: { type: string, description: 'Gateway extension — optional' }
+                tools: { type: array, description: 'Phase 3 — Anthropic tool definitions' }
+                tool_choice: { description: 'Only {"type":"auto"} (default) and {"type":"none"} are supported' }
       responses:
         '200': { description: 'Message (or SSE stream if stream=true)' }
         '400': { description: invalid_request_error }

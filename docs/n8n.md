@@ -11,7 +11,7 @@ Base URL: http://<gateway-host>:8787/v1
 API Key:  <your GATEWAY_API_KEY>
 ```
 
-This gets Claude into n8n's native AI Agent/Chain nodes with no manual HTTP Request node or response-parsing step. **Caveat**: n8n's AI Agent node may attempt tool/function calls, which this gateway doesn't support yet (rejected with a clear `invalid_request_error`, not a silent failure) — plain chat/completion nodes work today.
+This gets Claude into n8n's native AI Agent/Chain nodes with no manual HTTP Request node or response-parsing step. The gateway now supports `tools`/`tool_calls` (Phase 3 — see `README.md`), so n8n's AI Agent node (which drives tool use) should work in principle, but that specific combination hasn't been live-tested yet — only the Basic LLM Chain path (below) and raw HTTP Request tool-calling (README's curl example) have been.
 
 ## 2. Generic HTTP Request node (fallback, either route)
 
@@ -40,4 +40,6 @@ Live-verified (2026-09-06) against a real n8n instance (`n8n@2.37.10`, CLI-drive
 - **Generic HTTP Request node → `/v1/messages`**: success, model replied correctly.
 - **Native path**: `@n8n/n8n-nodes-langchain.lmChatOpenAi` ("OpenAI Chat Model") feeding a `chainLlm` ("Basic LLM Chain") node, credential type `openAiApi` with its **Base URL** field pointed at `http://<gateway>:8787/v1` — success, token usage tracked by n8n's own tracing metadata (`llm.tokens.in/out`). This exercises LangChain's own OpenAI-compatible client under the hood, a stronger compatibility proof than a raw SDK smoke test.
 
-This closes PRD M7 and §26's n8n acceptance checkbox for host-mode networking. Docker-mode n8n (`host.docker.internal` / shared compose network, per the section above) is documented but not separately live-tested with two containers — same status as the gateway's own `docker compose up`, still pending a live run.
+This closes PRD M7 and §26's n8n acceptance checkbox for host-mode networking.
+
+**Docker-mode networking, also live-verified (2026-09-06):** ran the official `n8nio/n8n` image (CLI-driven, same import/execute pattern) attached to the gateway's own `docker compose` network (`pgsaoapi_default`), calling it by service name — `http://gateway:8787/v1/chat/completions` — with no `localhost` or `host.docker.internal` involved. Success, real Claude reply came back correctly. Confirms the shared-compose-network guidance above works as described.

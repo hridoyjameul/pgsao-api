@@ -40,7 +40,13 @@ Real OpenAI and Anthropic APIs are stateless: the caller resends full history ev
 
 ## Isolation from this machine's own Claude Code config
 
-Every `query()` call passes `tools: []` (no Bash/Read/Write/etc. — this is a plain chat/messages gateway until tool-calling ships in a later phase) and `settingSources: []` ("SDK isolation mode" — don't load `~/.claude/settings.json` or project/local `CLAUDE.md`). An HTTP caller should get pure model behavior, not whatever this host's own Claude Code happens to be configured to do.
+Every `query()` call passes `tools: []` (no Bash/Read/Write/etc.) and `settingSources: []` ("SDK isolation mode" — don't load `~/.claude/settings.json` or project/local `CLAUDE.md`). An HTTP caller should get pure model behavior, not whatever this host's own Claude Code happens to be configured to do. Caller-declared `tools` (Phase 3) are registered separately as one ad-hoc MCP server per call — see the tool-calling section below — never the host's own built-ins.
+
+## Tool-calling (Phase 3, PRD §23/NG6)
+
+The Claude Agent SDK's `query()` is fundamentally an autonomous agent loop (it executes tools itself and keeps going) — a real mismatch with real OpenAI/Anthropic tool-calling, where the API only *proposes* a call and hands control back to the caller. `providers/claude.ts` bridges this by registering the caller's tools as one ad-hoc `createSdkMcpServer`, and a `canUseTool` callback that **always denies** every call — capturing `(name, input, id)` from the callback's own arguments and calling the `Query` object's `.interrupt()` to stop the underlying loop from retrying. The query always ends in an `error_during_execution`-shaped result after this; that's expected, not a real failure, as long as a call was captured (see `spikes/FINDINGS.md`'s Phase 3 spike).
+
+The caller executes the tool externally and reports the result back on its **next** request — same shape a real, unmodified OpenAI/Anthropic client already sends (an appended tool-result turn). That continuation always uses the flatten-and-restart path (`buildPrompt`), never `resume()` — resuming permanently "poisons" a denied `tool_use_id`'s resolution in the session's own transcript, so a later-injected real result gets ignored. This means the `session_id` extension and tool-calling don't mix yet (documented limitation, not silently mishandled).
 
 ## Error taxonomy
 
