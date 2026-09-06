@@ -15,6 +15,8 @@ export class FakeClaudeProvider implements ClaudeProvider {
   public sessionCounter = 0;
   /** Artificial latency, for deterministically testing the concurrency queue without waiting on real Claude latency. */
   public delayMs = 0;
+  /** When true and >1 tool is declared, propose ALL of them at once (simulating a parallel tool-call turn — see spikes/spike-07). Default false to keep existing single-tool tests' behavior unchanged. */
+  public simulateParallelToolCalls = false;
   private readonly sessionSecrets = new Map<string, string>();
 
   async sendMessage(request: InternalClaudeRequest): Promise<InternalClaudeResponse> {
@@ -31,20 +33,22 @@ export class FakeClaudeProvider implements ClaudeProvider {
       const flattenedAll = request.messages.map((m) => m.content).join('\n');
       const toolResultMatch = flattenedAll.match(/\[tool result for tool_use_id [^\]]*?:\s*([\s\S]*?)\]/);
       if (!toolResultMatch) {
-        const t = request.tools[0]!;
+        const proposedTools = this.simulateParallelToolCalls ? request.tools : [request.tools[0]!];
         return {
           sessionId,
           model: request.model ?? 'claude-sonnet-5',
           text: '',
-          toolCalls: [{ id: 'fake_tool_call_1', name: t.name, input: {} }],
+          toolCalls: proposedTools.map((t, i) => ({ id: `fake_tool_call_${i + 1}`, name: t.name, input: {} })),
           stopReason: 'tool_use',
           usage: { inputTokens: 10, outputTokens: 5 },
         };
       }
+      // Multiple tool_result markers may be present (parallel calls, each answered) — surface all of them.
+      const allResults = [...flattenedAll.matchAll(/\[tool result for tool_use_id [^\]]*?:\s*([\s\S]*?)\]/g)].map((m) => m[1]!.trim());
       return {
         sessionId,
         model: request.model ?? 'claude-sonnet-5',
-        text: `Tool result received: ${toolResultMatch[1]!.trim()}`,
+        text: `Tool result(s) received: ${allResults.join(' | ')}`,
         stopReason: 'end_turn',
         usage: { inputTokens: 10, outputTokens: 8 },
       };

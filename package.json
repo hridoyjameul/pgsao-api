@@ -23,7 +23,8 @@
     "spike:03": "tsx spikes/spike-03-concurrency-ceiling.ts",
     "spike:04": "tsx spikes/spike-04-credential-expiry.ts",
     "spike:05": "tsx spikes/spike-05-format-roundtrip.ts",
-    "spike:06": "tsx spikes/spike-06-tool-calling.ts"
+    "spike:06": "tsx spikes/spike-06-tool-calling.ts",
+    "spike:07": "tsx spikes/spike-07-parallel-tool-calls.ts"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

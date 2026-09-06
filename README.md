@@ -102,7 +102,7 @@ curl http://localhost:8787/v1/messages -H "x-api-key: $GATEWAY_API_KEY" -H "Cont
 **Known limitations:**
 - Tool-augmented turns always use the stateless flatten-and-restart path — the `session_id` extension doesn't mix with tool use yet (see `spikes/FINDINGS.md`'s Phase 3 spike for why: resuming permanently poisons a tool_use_id's resolution once a call is denied).
 - `tool_choice` only supports `"auto"` and `"none"` — forcing a specific named tool isn't supported yet (rejected with a clear error, not silently ignored).
-- Parallel tool calls (the model calling more than one tool in the same turn) haven't been tested.
+- Parallel tool calls (the model calling more than one tool in the same turn) are supported and live-verified — a small (50ms) debounce lets sibling calls in the same turn land before the query is interrupted. See `spikes/FINDINGS.md`'s Phase 3 follow-up spike for the bug this fixed.
 - `usage` on a tool-call-stop response is `0`/`0` — the SDK doesn't expose real token counts on the code path that captures a proposed call.
 - Tool parameter schemas support the realistic JSON Schema subset tools actually use (object/string/number/integer/boolean/array/enum) — `oneOf`/`anyOf`/`allOf`/`$ref`/conditionals are rejected with a clear error.
 

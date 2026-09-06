@@ -92,9 +92,18 @@ interface ToolInterception {
   activeQuery: Query | undefined;
 }
 
+// Parallel tool calls (the model calling >1 tool in the same turn) each get
+// their own canUseTool invocation, but interrupting on the FIRST one cuts
+// the query off before a sibling call's own canUseTool even fires — spike-07
+// measured this losing the second (and later) calls outright. Debouncing
+// instead — each new capture resets the timer, so interrupt() only actually
+// fires once no NEW capture has arrived for a short window — reliably
+// captured all calls in 3/3 live runs of a genuine two-tool-call turn.
+const PARALLEL_CALL_DEBOUNCE_MS = 50;
+
 function buildToolInterception(tools: InternalToolDefinition[]): ToolInterception {
   const interception: ToolInterception = { mcpServer: undefined as any, canUseTool: undefined as any, capturedCalls: [], activeQuery: undefined };
-  let interrupted = false;
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   const toolDefs = tools.map((t) =>
     tool(t.name, t.description, jsonSchemaObjectToZodRawShape(t.parameters) as z.ZodRawShape, async () => {
@@ -105,10 +114,8 @@ function buildToolInterception(tools: InternalToolDefinition[]): ToolInterceptio
 
   interception.canUseTool = async (toolName, input, options) => {
     interception.capturedCalls.push({ id: options.toolUseID, name: toolName.startsWith(TOOL_PREFIX) ? toolName.slice(TOOL_PREFIX.length) : toolName, input });
-    if (!interrupted) {
-      interrupted = true;
-      void interception.activeQuery?.interrupt();
-    }
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => void interception.activeQuery?.interrupt(), PARALLEL_CALL_DEBOUNCE_MS);
     return { behavior: 'deny', message: 'Execution deferred to the caller — this gateway only relays tool-call proposals (Phase 3).', toolUseID: options.toolUseID };
   };
 
