@@ -5,6 +5,9 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "bin": {
+    "pgsao-api": "./dist/cli.js"
+  },
   "engines": {
     "node": ">=22.5.0"
   },
@@ -12,6 +15,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
+    "cli": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "spike:01": "tsx spikes/spike-01-single-request.ts",

@@ -12,8 +12,7 @@ export async function startTestApp(envOverrides: Record<string, string> = {}) {
   } as unknown as NodeJS.ProcessEnv);
 
   const claudeProvider = new FakeClaudeProvider();
-  const app = buildApp({ config, claudeProvider, dbPath: ':memory:' });
-  await app.gateway.credentialMonitor.checkNow();
+  const app = await buildApp({ config, claudeProvider, dbPath: ':memory:' });
   await app.listen({ port: 0, host: '127.0.0.1' });
 
   const address = app.server.address();

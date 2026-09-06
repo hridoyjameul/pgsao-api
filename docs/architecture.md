@@ -52,6 +52,10 @@ The caller executes the tool externally and reports the result back on its **nex
 
 Six categories throughout (`invalid_request_error`, `rate_limit_error`, `usage_limit_error`, `credential_error`, `provider_error`, plus a 500 fallback), plus a 401 `authentication_error` for the gateway's own API key (distinct from `credential_error`, which is the Claude *account's* auth going stale). `providers/claude.ts` maps the SDK's own `SDKAssistantMessageError` enum and `SDKRateLimitEvent` into these — see `spikes/FINDINGS.md` for the concrete mapping table. Each route's translator renders the SAME `ApiError` into its own native shape: Anthropic requires a top-level `"type":"error"` wrapper, OpenAI does not.
 
+## CLI and startup (Phase 4)
+
+`src/start-server.ts` holds the one real startup path (load `.env`, load config, `buildApp`, start the credential monitor's periodic timer, listen, wire graceful shutdown) — both `src/server.ts` (the direct-run entry: Docker `CMD`, `npm start`/`dev`) and `src/cli.ts start` call it, so there's no duplicate logic to drift. `buildApp` itself awaits one `credentialMonitor.checkNow()` before returning, so every caller gets a real status immediately rather than the default "not yet checked" (this bit three separate call sites — test harness, server startup, `doctor` — before being fixed at the source instead of patched per-caller). `doctor` builds its own ephemeral app instance and hits both compat routes via Fastify's `.inject()` (no port bound, so it can't conflict with an already-running instance) for a genuine live check, not just config validation.
+
 ## Testing philosophy
 
 `tests/support/fake-claude-provider.ts` is a deterministic `ClaudeProvider` test double, letting the full HTTP/schema/translator/SSE pipeline be exercised by the **real** `openai` and `@anthropic-ai/sdk` client libraries (proving request/response shape fidelity) without spending real Claude usage on every `npm test` run. The true end-to-end proof against a live account is the manual curl/SDK walkthrough in `README.md`.

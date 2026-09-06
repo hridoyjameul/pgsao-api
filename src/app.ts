@@ -10,6 +10,7 @@ import { createLoggerOptions } from './utils/logger.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerModelsRoute } from './routes/models.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
+import { registerUsageRoute } from './routes/usage.js';
 import { registerAnthropicCompatRoute } from './routes/anthropic-compat.js';
 import { registerOpenAiCompatRoute } from './routes/openai-compat.js';
 import { ApiError } from './errors/api-error.js';
@@ -31,7 +32,7 @@ export interface BuildAppOptions {
   dbPath?: string;
 }
 
-export function buildApp(opts: BuildAppOptions): FastifyInstance {
+export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
   const { config } = opts;
   const app = Fastify({ logger: createLoggerOptions(config) });
 
@@ -69,8 +70,15 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
   registerHealthRoute(app, gateway);
   registerModelsRoute(app, gateway);
   registerSessionsRoutes(app, gateway);
+  registerUsageRoute(app, gateway);
   if (config.ENABLE_ANTHROPIC_COMPAT_ROUTE) registerAnthropicCompatRoute(app, gateway);
   if (config.ENABLE_OPENAI_COMPAT_ROUTE) registerOpenAiCompatRoute(app, gateway);
+
+  // Every route gates on credentialMonitor.status — without this, it starts
+  // at "not yet checked" and every request 503s until CREDENTIAL_CHECK_INTERVAL_MS
+  // first elapses. Checked here, once, so no caller can forget it (this bit
+  // three separate call sites during Phase 4 development before landing here).
+  await credentialMonitor.checkNow();
 
   return app;
 }

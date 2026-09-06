@@ -48,6 +48,14 @@ Lists the model alias allow-list (`src/config/models.ts`) — not an open passth
 }
 ```
 
+## `GET /v1/usage`
+
+Basic usage dashboard data (Phase 4), split by route — request counts (ok/error), average concurrency-queue wait, and error counts by category. Pulled from the `requests` audit log every call already writes to (`sessions/session-manager.ts`).
+
+```json
+{ "total": 42, "byRoute": { "openai": { "total": 30, "ok": 28, "error": 2, "avgQueueWaitMs": 4 }, "anthropic": { "total": 12, "ok": 12, "error": 0, "avgQueueWaitMs": 0 } }, "errorsByType": { "invalid_request_error": 2 } }
+```
+
 ## `POST /v1/sessions`, `GET /v1/sessions/:id`, `DELETE /v1/sessions/:id`
 
 Explicit lifecycle management for the `session_id` extension. Not a required precondition — passing an unseen `session_id` directly to either compat route auto-creates it.

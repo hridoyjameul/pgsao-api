@@ -106,6 +106,25 @@ curl http://localhost:8787/v1/messages -H "x-api-key: $GATEWAY_API_KEY" -H "Cont
 - `usage` on a tool-call-stop response is `0`/`0` — the SDK doesn't expose real token counts on the code path that captures a proposed call.
 - Tool parameter schemas support the realistic JSON Schema subset tools actually use (object/string/number/integer/boolean/array/enum) — `oneOf`/`anyOf`/`allOf`/`$ref`/conditionals are rejected with a clear error.
 
+## CLI
+
+```bash
+npm run cli -- doctor          # end-to-end setup/health check (Node version, auth, config, port, both routes live)
+npm run cli -- status          # ping an already-running instance's /health
+npm run cli -- start           # same as `npm run dev`/`npm start`, via the CLI
+npm run cli -- key generate    # print a new GATEWAY_API_KEY value
+```
+
+After `npm run build`, these are also available as `pgsao-api <command>` (the package's `bin` entry — works after `npm link` or a global install). `doctor` makes two small real Claude calls (one per route) as part of its check, so it costs a sliver of usage — that's the point, it's confirming your account actually works end-to-end, not just that the config parses.
+
+## Usage dashboard
+
+```bash
+curl http://localhost:8787/v1/usage -H "Authorization: Bearer $GATEWAY_API_KEY"
+```
+
+Basic stats split by route — request counts (ok/error), average concurrency-queue wait, error counts by category — pulled from the same audit log every call already writes to (`data/gateway.db`'s `requests` table).
+
 ## Known MVP limitations
 
 - **Text-only** — image/vision content blocks are rejected explicitly, not silently dropped.

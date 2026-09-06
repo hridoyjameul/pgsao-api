@@ -9,6 +9,12 @@ export interface SessionRecord {
   updatedAt: number;
 }
 
+export interface UsageStats {
+  total: number;
+  byRoute: Record<string, { total: number; ok: number; error: number; avgQueueWaitMs: number | null }>;
+  errorsByType: Record<string, number>;
+}
+
 export interface RequestLogEntry {
   id: string;
   sessionId?: string;
@@ -101,6 +107,31 @@ export class SessionManager {
     this.db
       .prepare('INSERT INTO requests (id, session_id, route, status, started_at, completed_at, error_type, queue_wait_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(entry.id, entry.sessionId ?? null, entry.route, entry.status, entry.startedAt, entry.completedAt ?? null, entry.errorType ?? null, entry.queueWaitMs ?? null);
+  }
+
+  /** Basic usage dashboard data (PRD §22 P2.4/§28 Phase 4) — split by route, from the `requests` audit log already recorded by every call. */
+  getUsageStats(): UsageStats {
+    const byRouteRows = this.db.prepare('SELECT route, status, COUNT(*) as cnt, AVG(queue_wait_ms) as avg_wait FROM requests GROUP BY route, status').all() as Array<{
+      route: string;
+      status: string;
+      cnt: number;
+      avg_wait: number | null;
+    }>;
+    const errorTypeRows = this.db.prepare("SELECT error_type, COUNT(*) as cnt FROM requests WHERE error_type IS NOT NULL GROUP BY error_type").all() as Array<{ error_type: string; cnt: number }>;
+
+    const byRoute: UsageStats['byRoute'] = {};
+    let total = 0;
+    for (const row of byRouteRows) {
+      const entry = (byRoute[row.route] ??= { total: 0, ok: 0, error: 0, avgQueueWaitMs: null });
+      entry.total += row.cnt;
+      entry[row.status === 'ok' ? 'ok' : 'error'] += row.cnt;
+      if (row.avg_wait !== null) entry.avgQueueWaitMs = Math.round(row.avg_wait);
+      total += row.cnt;
+    }
+    const errorsByType: Record<string, number> = {};
+    for (const row of errorTypeRows) errorsByType[row.error_type] = row.cnt;
+
+    return { total, byRoute, errorsByType };
   }
 
   close(): void {

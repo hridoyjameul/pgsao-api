@@ -104,6 +104,28 @@ paths:
         '429': { description: rate_limit_error or usage_limit_error }
         '502': { description: provider_error }
         '503': { description: credential_error }
+  /v1/usage:
+    get:
+      summary: Basic usage dashboard data, split by route (Phase 4)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  byRoute:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        total: { type: integer }
+                        ok: { type: integer }
+                        error: { type: integer }
+                        avgQueueWaitMs: { type: integer, nullable: true }
+                  errorsByType: { type: object, additionalProperties: { type: integer } }
   /v1/sessions:
     post:
       summary: Create a session_id for the extension mode
