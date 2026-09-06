@@ -66,7 +66,9 @@ Both real APIs are stateless — resend the full `messages` history every call, 
 docker compose up -d --build
 ```
 
-The compose file binds the container's port to `127.0.0.1` on the host by default — **never publish a bare `8787:8787`** if you deploy this on a cloud VM; put it behind a reverse proxy/firewall (nginx, Caddy, Tailscale, an SSH tunnel) instead of exposing the port directly to the public internet. It also mounts your `~/.claude` credentials read-only so the containerized Agent SDK authenticates as the same account you're logged into on the host — set `CLAUDE_CONFIG_DIR` in your shell if that lives somewhere non-default.
+The compose file binds the container's port to `127.0.0.1` on the host by default — **never publish a bare `8787:8787`** if you deploy this on a cloud VM; put it behind a reverse proxy/firewall (nginx, Caddy, Tailscale, an SSH tunnel) instead of exposing the port directly to the public internet. It also mounts your `~/.claude` credentials read-only so the containerized Agent SDK authenticates as the same account you're logged into on the host — set `CLAUDE_CONFIG_DIR` in your shell if that lives somewhere non-default (the plain `~/.claude` default has been confirmed to resolve correctly on Windows/Docker Desktop too, no override needed there in practice).
+
+Live-verified (2026-09-06): built and ran the image, confirmed `claude_auth_status: "ok"` from inside the container (credential mount works), called both `/v1/messages` and `/v1/chat/completions` against a live Claude account through the container, confirmed the SQLite volume persists to `./data` on the host, and confirmed the port is reachable only on `127.0.0.1` (`docker port` / `docker inspect`).
 
 ## n8n integration
 
