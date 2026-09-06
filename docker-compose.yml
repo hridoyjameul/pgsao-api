@@ -1,7 +1,7 @@
 services:
   gateway:
     build: .
-    image: pigsao-api
+    image: pgsao-api
     restart: unless-stopped
     env_file:
       - .env

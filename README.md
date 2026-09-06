@@ -1,4 +1,4 @@
-# PIGSAO API
+# PGSAO API
 
 **P**ersonal **G**ateway for **A**nthropic/**O**penAI **API** — expose your own Claude subscription behind two spec-accurate, drop-in-compatible HTTP surfaces:
 
@@ -15,7 +15,7 @@ Point any existing OpenAI-SDK or Anthropic-SDK client — or n8n, or a script, o
 
 ```bash
 git clone <this-repo>
-cd pigsao-api
+cd pgsao-api
 npm install
 
 # Make sure you're logged into Claude Code / the Agent SDK on this machine —

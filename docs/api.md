@@ -41,7 +41,7 @@ Lists the model alias allow-list (`src/config/models.ts`) — not an open passth
 
 ```json
 {
-  "status": "ok", "service": "pigsao-api", "version": "0.0.1",
+  "status": "ok", "service": "pgsao-api", "version": "0.0.1",
   "claude_auth_status": "ok",
   "active_requests": 0, "queued_requests": 0,
   "routes": { "openai_compatible": "enabled", "anthropic_compatible": "enabled" }

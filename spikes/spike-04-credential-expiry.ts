@@ -34,7 +34,7 @@ async function checkCredentials(options: Options = ISOLATED_OPTIONS): Promise<{ 
 }
 
 async function checkWithEmptyConfigDir(): Promise<{ ok: boolean; ms: number; detail: string }> {
-  const emptyDir = mkdtempSync(join(tmpdir(), 'pigsao-empty-creds-'));
+  const emptyDir = mkdtempSync(join(tmpdir(), 'pgsao-empty-creds-'));
   try {
     return await checkCredentials({
       ...ISOLATED_OPTIONS,

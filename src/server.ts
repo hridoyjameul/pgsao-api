@@ -17,7 +17,7 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 try {
   await app.listen({ host: config.HOST, port: config.PORT });
-  app.log.info(`pigsao-api listening on http://${config.HOST}:${config.PORT}`);
+  app.log.info(`pgsao-api listening on http://${config.HOST}:${config.PORT}`);
 } catch (err) {
   app.log.error(err);
   process.exit(1);

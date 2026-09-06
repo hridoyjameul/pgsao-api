@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: PIGSAO API
+  title: PGSAO API
   description: Personal Gateway for Anthropic/OpenAI API
   version: 0.0.1
   license:

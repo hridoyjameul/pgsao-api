@@ -8,7 +8,7 @@ export function registerHealthRoute(app: FastifyInstance, gateway: GatewayDeps):
     const { credentialMonitor, queue, config } = gateway;
     return {
       status: 'ok',
-      service: 'pigsao-api',
+      service: 'pgsao-api',
       version: GATEWAY_VERSION,
       claude_auth_status: credentialMonitor.status.ok ? 'ok' : 'error',
       active_requests: queue.stats.active,

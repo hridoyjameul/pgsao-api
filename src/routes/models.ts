@@ -8,7 +8,7 @@ export function registerModelsRoute(app: FastifyInstance, gateway: GatewayDeps):
     const aliases = listModelAliases();
     return {
       object: 'list',
-      data: aliases.map((id) => ({ id, object: 'model', owned_by: 'pigsao-api' })),
+      data: aliases.map((id) => ({ id, object: 'model', owned_by: 'pgsao-api' })),
     };
   });
 }
