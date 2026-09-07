@@ -30,6 +30,8 @@ npm run dev        # or: npm run build && npm start
 curl http://localhost:8787/health
 ```
 
+Then open **http://localhost:8787/dashboard** — a web control panel (no separate install, no build step) for everything below: live status, usage stats, session management, and ready-to-copy curl/SDK snippets. Paste your `GATEWAY_API_KEY` in there once; it's kept only in that browser's localStorage.
+
 ### Test both routes
 
 ```bash
