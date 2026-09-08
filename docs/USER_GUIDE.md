@@ -1,272 +1,130 @@
 # PGSAO API — User Guide
 
-A plain-English, step-by-step guide to installing, running, and using PGSAO API — no AI assistant needed.
+A plain-English guide for **non-developers**. No terminal commands to memorize, no config files to edit by hand.
 
-**What this is:** PGSAO API turns your own Claude subscription (via Claude Code / Agent SDK login) into a private HTTP API server on your computer. Any tool that speaks the OpenAI or Anthropic API format (n8n, scripts, SDKs, etc.) can point at it instead of paying for a separate API key.
+**What this is:** PGSAO API turns your own Claude subscription into a private API key you can paste into other apps (n8n, chatbots, scripts, etc.) instead of paying for a separate API.
 
 **GitHub repo:** https://github.com/hridoyjameul/pgsao-api
 
----
+## How it works — 3 steps
 
-## 1. Requirements
+1. **You install the app.** (Windows: double-click `start.bat`. Nothing else to configure.)
+2. **The app finds your Claude subscription automatically**, using the same login your Claude Code app already has on this computer.
+3. **The app shows you your API key on its dashboard**, already created for you — copy it into whatever other app you're connecting.
 
-Before you start, make sure you have:
-
-- **Node.js version 22.5.0 or newer** — check with `node -v` in a terminal.
-- **Git** — check with `git -v`.
-- **Claude Code (or another Agent SDK tool) already installed and logged in** on this machine. PGSAO API uses that existing login — it does NOT need a separate Anthropic API key.
-- (Optional) **Docker Desktop** — only needed if you want to run this in a container instead of directly with Node.
+That's the whole idea. Everything below is just the detail behind those 3 steps, plus how to use the key once you have it.
 
 ---
 
-## 2. Download the project
+## 1. Before you start
 
-Open a terminal and run:
+You need:
+
+- **Node.js** (version 22.5.0 or newer) installed on this computer.
+- **Claude Code already installed and logged in** on this same computer — PGSAO API rides on that login; you never need a separate Anthropic API key.
+
+That's it. You do **not** need to know Git, npm, or how to edit config files — the app handles all of that for you.
+
+---
+
+## 2. Install and start the app
+
+**On Windows:** open the project folder and double-click **`start.bat`**.
+
+- The first time, a black window will briefly appear and install some files — this only happens once and can take a minute or two.
+- After that, a second window opens (that's the app running — leave it open), and your browser opens automatically to the dashboard.
+
+**On Mac/Linux, or if you prefer a terminal:**
 
 ```bash
 git clone https://github.com/hridoyjameul/pgsao-api.git
 cd pgsao-api
 npm install
+npm run dev
 ```
 
-This downloads the code and installs its dependencies.
+Then open **http://localhost:8787/dashboard** in your browser.
+
+There is nothing to configure before this step — the app creates its own settings file and its own API key automatically the first time it runs.
 
 ---
 
-## 3. Set up your configuration file
+## 3. The dashboard — everything happens here
 
-The project needs a `.env` file with your settings and a secret key.
+Open **http://localhost:8787/dashboard**. You'll see three setup steps at the top:
 
-**Step 1** — Copy the example file:
+1. **App installed and running** — a checkmark. If you can see this page, this is already done.
+2. **Claude account** — shows "Connected ✓" once the app has confirmed it can use your Claude login. If it says "Not connected," make sure you're logged into Claude Code on this computer, then reload the page.
+3. **Your API key** — already filled in for you. Click **show** to reveal it, and **copy** to copy it to your clipboard.
 
-```bash
-cp .env.example .env
-```
+Below that, a **"Use it in another app"** box gives you the two things any other app will ask for:
 
-(On Windows PowerShell, use `Copy-Item .env.example .env` instead.)
+- A **Base URL** (there are two — use whichever the other app expects; most modern tools want the OpenAI one)
+- Your **API key** (same one as above)
 
-**Step 2** — Generate a secret API key (this is the password your own tools will use to talk to the gateway — not your Anthropic account password):
-
-```bash
-node -e "console.log('GATEWAY_API_KEY=cg_local_' + require('crypto').randomBytes(24).toString('hex'))"
-```
-
-This prints a line like:
-
-```
-GATEWAY_API_KEY=cg_local_a1b2c3...
-```
-
-**Step 3** — Open the `.env` file in any text editor, find the empty `GATEWAY_API_KEY=` line, and paste in the value you just generated (the whole line, including `GATEWAY_API_KEY=`).
-
-**Step 4** — Save the file. Leave every other setting in `.env` at its default unless you have a specific reason to change it (each setting has a comment explaining what it does).
+Just paste those two values into the other app's settings. That's the entire integration.
 
 ---
 
-## 4. Start the server
+## 4. Using your key in another app (e.g., n8n)
 
-Run one of these:
+Most tools that let you "bring your own API key" ask for exactly two things:
 
-```bash
-npm run dev        # for everyday/development use, auto-reloads on code changes
-```
-
-or
-
-```bash
-npm run build && npm start   # for a production-style run
-```
-
-You should see log output saying the server is listening. Leave this terminal window open — closing it stops the server.
-
-**Check it's alive** — open a new terminal (or your browser) and visit:
-
-```
-http://localhost:8787/health
-```
-
-You should get a small JSON response back, not an error page.
-
----
-
-## 5. Use the web dashboard (recommended — no terminal needed after this)
-
-Open your browser and go to:
-
-```
-http://localhost:8787/dashboard
-```
-
-On first visit, paste in the `GATEWAY_API_KEY` value from your `.env` file when asked. The dashboard remembers it in your browser only (it is never sent anywhere else).
-
-From the dashboard you can:
-
-- See live server status and health
-- View usage statistics (how many requests, by route)
-- Create, view, and delete **sessions** (see section 7)
-- Copy ready-to-use `curl` and SDK code snippets for your own tools
-
-This is the easiest way to use PGSAO API day-to-day — you do not need to write any curl commands yourself if you don't want to.
-
----
-
-## 6. Point your own tools at the gateway
-
-Any tool that can call an OpenAI-compatible or Anthropic-compatible API can use PGSAO API by changing two things: the **base URL** and the **API key**.
-
-### OpenAI-style tools / SDKs
-
-- Base URL: `http://localhost:8787/v1`
-- API key: your `GATEWAY_API_KEY`
-
-Example (Node.js, `openai` package):
-
-```ts
-import OpenAI from 'openai';
-const client = new OpenAI({
-  apiKey: process.env.GATEWAY_API_KEY,
-  baseURL: 'http://localhost:8787/v1',
-});
-```
-
-### Anthropic-style tools / SDKs
-
-- Base URL: `http://localhost:8787`
-- API key: your `GATEWAY_API_KEY`
-
-Example (Node.js, `@anthropic-ai/sdk` package):
-
-```ts
-import Anthropic from '@anthropic-ai/sdk';
-const client = new Anthropic({
-  apiKey: process.env.GATEWAY_API_KEY,
-  baseURL: 'http://localhost:8787',
-});
-```
-
-### Testing with curl directly
-
-```bash
-curl http://localhost:8787/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"claude-via-gateway","messages":[{"role":"user","content":"Hello."}]}'
-```
-
-```bash
-curl http://localhost:8787/v1/messages \
-  -H "x-api-key: YOUR_GATEWAY_API_KEY" \
-  -H "anthropic-version: 2023-06-01" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"claude-via-gateway","max_tokens":256,"messages":[{"role":"user","content":"Hello."}]}'
-```
-
-### Choosing a model
-
-Use `model: "claude-via-gateway"` to use whichever model your Claude Code login defaults to, or pin a specific one: `claude-opus-5`, `claude-sonnet-5`, or `claude-haiku-4-5`. The full allowed list is available at `GET /v1/models`.
-
----
-
-## 7. Sessions (optional — skip this unless you need it)
-
-By default, every request is stateless: you resend the full conversation history each time, exactly like the real OpenAI/Anthropic APIs work. Most SDKs do this automatically, so you usually don't need to think about it.
-
-If you control the calling code (e.g., your own n8n workflow) and want to avoid resending history, you can add a `session_id` field to your request body. The first time you use a given `session_id`, it's created automatically; after that, the gateway remembers the conversation for you. You can also manage sessions explicitly:
-
-- `POST /v1/sessions` — create a session
-- `GET /v1/sessions` — list sessions
-- `DELETE /v1/sessions/:id` — delete a session
-
-All of this is also available through the dashboard's Sessions panel.
-
-**Note:** sessions and tool/function-calling (section 8) don't currently work together in the same request — this is a known limitation, not a bug.
-
----
-
-## 8. Using with n8n
-
-See `docs/n8n.md` in this repo for full details. In short: use n8n's built-in **"OpenAI Chat Model"** node and point its Base URL at `http://localhost:8787/v1` with your `GATEWAY_API_KEY` as the credential — this is the easiest path and works with n8n's AI Agent node and tool use out of the box. A generic HTTP Request node against either route also works if you prefer.
-
----
-
-## 9. Tool / function calling
-
-Both routes support the standard `tools` parameter (same shape real OpenAI/Anthropic clients use):
-
-1. You send a request with a `tools` list describing functions the model can call.
-2. If the model wants to use one, the response comes back with a `tool_use` (Anthropic) or `tool_calls` (OpenAI) result instead of plain text.
-3. **Your code** runs that function/tool.
-4. You send a follow-up request including the tool's result, and the model continues.
-
-See the "Tool/function-calling" section of the main `README.md` for full copy-paste curl examples.
-
----
-
-## 10. Command-line tool
-
-Once installed, PGSAO API also ships a CLI. Use `npm run cli -- <command>` during local development, or `pgsao-api <command>` if installed globally.
-
-| Command | What it does |
+| Field the other app asks for | What to paste |
 |---|---|
-| `pgsao-api start` | Start the server |
-| `pgsao-api status` | Check whether the server is running and healthy |
-| `pgsao-api doctor` | Run a full self-check (build + test both routes) without needing the server already running |
-| `pgsao-api key generate` | Generate a new `GATEWAY_API_KEY` value |
+| Base URL / Endpoint (OpenAI-style) | `http://localhost:8787/v1` |
+| Base URL / Endpoint (Anthropic/Claude-style) | `http://localhost:8787` |
+| API key | The key shown on your dashboard |
 
-**Rotating your key:** run `pgsao-api key generate`, copy the new value into `.env` in place of the old one, then restart the server (`npm run dev` / `npm start`). The old key stops working immediately.
-
----
-
-## 11. Running with Docker (optional)
-
-If you'd rather run this in a container:
-
-```bash
-docker compose up -d --build
-```
-
-This builds the image, starts the container, and binds it to `127.0.0.1` only on your machine by default — it is **not** exposed to the internet. It automatically uses your existing `~/.claude` login (mounted read-only) so it authenticates as the same account you're logged into on your host machine.
-
-**If you deploy this on a cloud server:** never expose the raw port (`8787`) directly to the public internet. Put it behind a reverse proxy or tunnel you control (nginx, Caddy, Tailscale, or an SSH tunnel) instead.
-
-To check it's healthy:
-
-```bash
-docker ps
-```
-
-You should see a "healthy" status next to the container.
+For **n8n** specifically: use its built-in **"OpenAI Chat Model"** node, and enter the Base URL and key above as its credential. See `docs/n8n.md` in this repo for a more detailed walkthrough if needed.
 
 ---
 
-## 12. Troubleshooting
+## 5. Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| Server crashes immediately on start, mentions `GATEWAY_API_KEY` | Your `.env` file is missing or the key wasn't pasted in. Redo section 3. |
-| `/health` or dashboard shows an auth/credential error | Your Claude Code / Agent SDK login has expired. Log in again on this machine, then restart the server. |
-| Dashboard can't reach the server / blank data | Make sure the server is actually running (check the terminal window from section 4), and that you're visiting the dashboard using the same host/URL the server is bound to. |
-| A tool call request seems to silently drop one of two tool calls | Update to the latest code — this was a known bug that has been fixed (parallel tool calls). |
-| Sessions + tool calling together behave oddly | Not supported yet — use one or the other per request, not both. |
+| Dashboard's "Claude account" step says "Not connected" | Open Claude Code on this computer and make sure you're logged in, then reload the dashboard page. |
+| Dashboard shows "could not fetch [key] automatically" | Restart the app (close both windows, double-click `start.bat` again). |
+| `start.bat` window closes immediately or shows an error | Make sure Node.js is installed. Re-run `start.bat` and read the message in the window before it closes. |
+| Browser shows "can't connect" right after starting | The app takes a few seconds to start — wait a moment and reload `http://localhost:8787/dashboard`. |
+| A different app can't reach the gateway | Make sure the app is still running (its window should still be open) and that you copied the Base URL and key exactly, with no extra spaces. |
 
-If none of these fix it, check `spikes/FINDINGS.md` and `docs/architecture.md` in the repo for deeper technical detail, or open an issue on GitHub (see below).
+If none of these help, open an issue on GitHub (see below) — include what the dashboard shows and any error text.
 
 ---
 
-## 13. GitHub — getting updates, reporting problems
+## 6. Starting a fresh key (if you ever need to)
+
+Your key is stored in a file named `.env` in the project folder. To generate a brand-new one:
+
+1. Close the app.
+2. Open `.env` in Notepad, delete everything after `GATEWAY_API_KEY=` on that line (leave `GATEWAY_API_KEY=` itself), and save.
+3. Start the app again (`start.bat`, or `npm run dev`) — it will notice the key is missing and create a new one automatically.
+4. Reload the dashboard — it will pick up the new key on its own. Update the key in any other app you'd connected it to.
+
+---
+
+## 7. Advanced options (safe to ignore)
+
+The dashboard has an "Advanced (for developers)" section at the bottom with usage stats, session management, and ready-to-copy `curl`/SDK code snippets. None of this is required for normal use — it's there if you (or someone helping you) ever wants to script against the gateway directly instead of using another app's built-in settings screen.
+
+If you're comfortable with Docker, `docker compose up -d --build` runs the whole app in a container instead — see `README.md` for details.
+
+---
+
+## 8. GitHub — getting updates, reporting problems
 
 - **Repository:** https://github.com/hridoyjameul/pgsao-api
-- **Get the latest version:** inside your project folder, run `git pull` then `npm install` again (in case dependencies changed).
-- **Report a bug or ask a question:** open an issue at https://github.com/hridoyjameul/pgsao-api/issues
+- **Get the latest version:** in the project folder, run `git pull`, then run `start.bat` (or `npm install`) again in case anything changed.
+- **Report a bug or ask a question:** https://github.com/hridoyjameul/pgsao-api/issues
 - **License:** MIT (see `LICENSE` in the repo) — free to use, modify, and self-host.
 
 ---
 
-## 14. Other documents in this repo
+## 9. Other documents in this repo (for developers)
 
-- `README.md` — quickstart and technical overview
+- `README.md` — technical quickstart and overview
 - `docs/api.md` — full API reference
 - `docs/architecture.md` — how the gateway is built internally
 - `docs/n8n.md` — detailed n8n integration guide
-- `PRD_Claude_Personal_API_Gateway_v3.md` — original design document
-- `spikes/FINDINGS.md` — empirical test results the design is based on

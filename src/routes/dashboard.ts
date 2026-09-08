@@ -4,9 +4,10 @@ import { GATEWAY_VERSION } from '../utils/version.js';
 
 /**
  * GET /dashboard — self-contained HTML control panel (no external assets/deps).
- * Unauthenticated shell: the page itself needs no key, but every data call it
- * makes (usage, sessions) goes through the existing authed routes from the
- * browser, using a key the user pastes in and that stays in localStorage —
+ * Unauthenticated shell: the page itself needs no key up front (it fetches
+ * one for itself from /v1/setup/key, loopback-only — see routes/setup.ts).
+ * Every other data call it makes (usage, sessions) goes through the existing
+ * authed routes from the browser, using that key kept in localStorage —
  * never sent anywhere but this gateway's own API.
  */
 export function registerDashboardRoute(app: FastifyInstance, gateway: GatewayDeps): void {
@@ -74,16 +75,16 @@ function renderDashboard(gateway: GatewayDeps): string {
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
-  body { font: 14px/1.5 -apple-system, Segoe UI, sans-serif; max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; background: light-dark(#fafafa, #111); color: light-dark(#111, #eee); }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .sub { color: #888; font-size: 13px; margin-bottom: 24px; }
+  body { font: 14px/1.5 -apple-system, Segoe UI, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; background: light-dark(#fafafa, #111); color: light-dark(#111, #eee); }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #888; font-size: 13.5px; margin-bottom: 24px; }
   .card { border: 1px solid light-dark(#ddd, #333); border-radius: 8px; padding: 16px; margin-bottom: 16px; background: light-dark(#fff, #1a1a1a); }
   .card h2 { font-size: 14px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .04em; color: #888; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; flex: none; }
   .dot.ok { background: #2ea043; } .dot.err { background: #d1242f; } .dot.warn { background: #bf8700; }
   input, select { font: inherit; padding: 6px 8px; border: 1px solid light-dark(#ccc, #444); border-radius: 6px; background: light-dark(#fff, #222); color: inherit; }
-  input[type=text], input[type=password] { flex: 1; min-width: 220px; }
+  input[type=text], input[type=password] { flex: 1; min-width: 200px; }
   button { font: inherit; padding: 6px 12px; border: 1px solid light-dark(#ccc, #444); border-radius: 6px; background: light-dark(#f0f0f0, #2a2a2a); color: inherit; cursor: pointer; }
   button:hover { background: light-dark(#e5e5e5, #333); }
   button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
@@ -98,54 +99,110 @@ function renderDashboard(gateway: GatewayDeps): string {
   .muted { color: #888; font-size: 12px; }
   .tabs button { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 4px; margin-right: 16px; }
   .tabs button.active { border-bottom-color: #2563eb; font-weight: 600; }
+  .step { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid light-dark(#eee, #2a2a2a); }
+  .step:last-child { border-bottom: none; }
+  .stepnum { flex: none; width: 22px; height: 22px; border-radius: 50%; background: light-dark(#eee, #2a2a2a); color: inherit; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+  .stepbody { flex: 1; min-width: 0; }
+  .steptitle { font-weight: 600; margin-bottom: 4px; }
+  .check { color: #2ea043; font-weight: 700; }
+  summary { cursor: pointer; font-size: 14px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: .04em; padding: 4px 0; }
+  details[open] summary { margin-bottom: 12px; }
+  .field-label { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .keybox { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 </style>
 </head>
 <body>
 
 <h1>PGSAO API</h1>
-<div class="sub">Personal Gateway for Anthropic/OpenAI API &middot; v${GATEWAY_VERSION} &middot; <span id="baseUrl">${baseUrl}</span></div>
+<div class="sub">Your own Claude, available as an API &middot; running on this computer &middot; v${GATEWAY_VERSION}</div>
 
 <div class="card">
-  <h2>Status</h2>
-  <div class="row" id="statusRow"><span class="dot warn"></span> checking&hellip;</div>
+  <h2>Setup</h2>
+
+  <div class="step">
+    <span class="stepnum">1</span>
+    <div class="stepbody">
+      <div class="steptitle">App installed and running <span class="check">&check;</span></div>
+      <div class="muted">You're looking at it — if this page loaded, the app is running.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <span class="stepnum">2</span>
+    <div class="stepbody">
+      <div class="steptitle">Claude account</div>
+      <div id="claudeStatus" class="muted">Checking&hellip;</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <span class="stepnum">3</span>
+    <div class="stepbody">
+      <div class="steptitle">Your API key</div>
+      <div class="muted" style="margin-bottom:8px">Created automatically. Copy it into any app that asks for an API key.</div>
+      <div class="row">
+        <input type="password" id="apiKey" class="keybox" readonly>
+        <button id="toggleKey">show</button>
+        <button id="copyKey" class="primary">copy</button>
+      </div>
+      <div id="keyMsg" class="muted" style="margin-top:6px"></div>
+    </div>
+  </div>
 </div>
 
 <div class="card">
-  <h2>Gateway key</h2>
+  <h2>Use it in another app</h2>
+  <div class="muted" style="margin-bottom:10px">Most apps ask for a <b>Base URL</b> (or "endpoint") and an <b>API key</b>. Use whichever Base URL matches what the other app expects — most modern tools use the OpenAI one.</div>
+
+  <div class="field-label">Base URL (OpenAI-style apps)</div>
+  <div class="row" style="margin-bottom:10px">
+    <input type="text" id="baseUrlOpenai" class="keybox" readonly value="${baseUrl}/v1">
+    <button data-copy-target="baseUrlOpenai">copy</button>
+  </div>
+
+  <div class="field-label">Base URL (Anthropic/Claude-style apps)</div>
+  <div class="row" style="margin-bottom:10px">
+    <input type="text" id="baseUrlAnthropic" class="keybox" readonly value="${baseUrl}">
+    <button data-copy-target="baseUrlAnthropic">copy</button>
+  </div>
+
+  <div class="field-label">API key</div>
   <div class="row">
-    <input type="password" id="apiKey" placeholder="paste your GATEWAY_API_KEY&hellip;">
-    <button id="toggleKey">show</button>
-    <button id="saveKey" class="primary">save</button>
+    <input type="text" id="apiKeyCopy" class="keybox" readonly>
+    <button data-copy-target="apiKeyCopy">copy</button>
   </div>
-  <div class="muted" style="margin-top:8px">Stored only in this browser's localStorage. Never sent anywhere but this gateway. Generate one with <code>pgsao-api key generate</code> if you don't have one yet.</div>
 </div>
 
-<div class="card">
-  <h2>Usage</h2>
-  <div id="usageBody"><div class="muted">Save a key above to load usage stats.</div></div>
-</div>
+<details>
+  <summary>Advanced (for developers)</summary>
 
-<div class="card">
-  <h2>Sessions</h2>
-  <div class="row">
-    <button id="createSession" class="primary">+ new session</button>
-    <input type="text" id="sessionLookup" placeholder="session id to look up / delete">
-    <button id="getSession">get</button>
-    <button id="deleteSession">delete</button>
+  <div class="card">
+    <h2>Usage</h2>
+    <div id="usageBody"><div class="muted">Loading&hellip;</div></div>
   </div>
-  <pre id="sessionOut" class="muted">no session looked up yet</pre>
-</div>
 
-<div class="card">
-  <h2>Use it</h2>
-  <div class="tabs">
-    <button class="tab-btn active" data-tab="curl-openai">curl (OpenAI shape)</button>
-    <button class="tab-btn" data-tab="curl-anthropic">curl (Anthropic shape)</button>
-    <button class="tab-btn" data-tab="sdk-openai">openai SDK</button>
-    <button class="tab-btn" data-tab="sdk-anthropic">anthropic SDK</button>
+  <div class="card">
+    <h2>Sessions</h2>
+    <div class="row">
+      <button id="createSession" class="primary">+ new session</button>
+      <input type="text" id="sessionLookup" placeholder="session id to look up / delete">
+      <button id="getSession">get</button>
+      <button id="deleteSession">delete</button>
+    </div>
+    <pre id="sessionOut" class="muted">no session looked up yet</pre>
   </div>
-  <pre id="snippet"></pre>
-</div>
+
+  <div class="card">
+    <h2>Code snippets</h2>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="curl-openai">curl (OpenAI shape)</button>
+      <button class="tab-btn" data-tab="curl-anthropic">curl (Anthropic shape)</button>
+      <button class="tab-btn" data-tab="sdk-openai">openai SDK</button>
+      <button class="tab-btn" data-tab="sdk-anthropic">anthropic SDK</button>
+    </div>
+    <pre id="snippet"></pre>
+  </div>
+</details>
 
 <script id="snippets-data" type="application/json">${JSON.stringify(snippets).replace(/</g, '\\u003c')}</script>
 <script>
@@ -157,29 +214,53 @@ function renderDashboard(gateway: GatewayDeps): string {
   function setKey(v) { try { localStorage.setItem(STORAGE_KEY, v); } catch (e) {} }
 
   var keyInput = document.getElementById('apiKey');
-  keyInput.value = getKey();
+  var keyCopyInput = document.getElementById('apiKeyCopy');
+  var keyMsg = document.getElementById('keyMsg');
+
+  function applyKey(v) {
+    keyInput.value = v;
+    keyCopyInput.value = v;
+  }
 
   document.getElementById('toggleKey').onclick = function () {
     keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
     this.textContent = keyInput.type === 'password' ? 'show' : 'hide';
   };
-  document.getElementById('saveKey').onclick = function () {
-    setKey(keyInput.value.trim());
-    loadUsage();
-  };
 
-  function fmtStatus(dot, text) {
-    document.getElementById('statusRow').innerHTML = '<span class="dot ' + dot + '"></span> ' + text;
+  function copyToClipboard(text, btn) {
+    var done = function () { var orig = btn.textContent; btn.textContent = 'copied!'; setTimeout(function () { btn.textContent = orig; }, 1200); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(function () {});
+    } else {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        done();
+      } catch (e) {}
+    }
+  }
+
+  document.getElementById('copyKey').onclick = function () { copyToClipboard(keyInput.value, this); };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-copy-target]'), function (btn) {
+    btn.onclick = function () {
+      var target = document.getElementById(btn.getAttribute('data-copy-target'));
+      copyToClipboard(target.value, btn);
+    };
+  });
+
+  function fmtClaudeStatus(dot, text) {
+    document.getElementById('claudeStatus').innerHTML = '<span class="dot ' + dot + '"></span> ' + text;
   }
 
   function loadHealth() {
     fetch('/health').then(function (r) { return r.json(); }).then(function (h) {
-      var dot = h.claude_auth_status === 'ok' ? 'ok' : 'err';
-      fmtStatus(dot,
-        'claude auth: <b>' + h.claude_auth_status + '</b> &middot; ' +
-        h.active_requests + ' active / ' + h.queued_requests + ' queued &middot; ' +
-        'openai route: ' + h.routes.openai_compatible + ' &middot; anthropic route: ' + h.routes.anthropic_compatible);
-    }).catch(function () { fmtStatus('err', 'gateway unreachable'); });
+      if (h.claude_auth_status === 'ok') {
+        fmtClaudeStatus('ok', 'Connected <span class="check">&check;</span>');
+      } else {
+        fmtClaudeStatus('err', 'Not connected — log in to Claude Code on this computer, then reload this page.');
+      }
+    }).catch(function () { fmtClaudeStatus('err', 'Could not reach the app.'); });
   }
 
   function authHeaders() {
@@ -190,14 +271,14 @@ function renderDashboard(gateway: GatewayDeps): string {
   function loadUsage() {
     var k = getKey();
     var el = document.getElementById('usageBody');
-    if (!k) { el.innerHTML = '<div class="muted">Save a key above to load usage stats.</div>'; return; }
+    if (!k) { el.innerHTML = '<div class="muted">Waiting for your API key&hellip;</div>'; return; }
     fetch('/v1/usage', { headers: authHeaders() }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     }).then(function (u) {
       var rows = Object.keys(u.byRoute || {}).map(function (route) {
         var s = u.byRoute[route];
-        return '<tr><td>' + route + '</td><td>' + s.total + '</td><td>' + s.ok + '</td><td>' + s.error + '</td><td>' + (s.avgQueueWaitMs == null ? '–' : s.avgQueueWaitMs + 'ms') + '</td></tr>';
+        return '<tr><td>' + route + '</td><td>' + s.total + '</td><td>' + s.ok + '</td><td>' + s.error + '</td><td>' + (s.avgQueueWaitMs == null ? '\u2013' : s.avgQueueWaitMs + 'ms') + '</td></tr>';
       }).join('');
       var errRows = Object.keys(u.errorsByType || {}).map(function (t) {
         return '<tr><td>' + t + '</td><td>' + u.errorsByType[t] + '</td></tr>';
@@ -207,7 +288,7 @@ function renderDashboard(gateway: GatewayDeps): string {
         '<table><thead><tr><th>route</th><th>total</th><th>ok</th><th>error</th><th>avg queue wait</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5" class="muted">no requests yet</td></tr>') + '</tbody></table>' +
         (errRows ? '<h3 style="font-size:12px;color:#888;margin:16px 0 4px">errors by type</h3><table><tbody>' + errRows + '</tbody></table>' : '');
     }).catch(function (e) {
-      el.innerHTML = '<div class="muted">could not load usage (' + e.message + ') — check the key is correct</div>';
+      el.innerHTML = '<div class="muted">could not load usage (' + e.message + ')</div>';
     });
   }
 
@@ -245,9 +326,32 @@ function renderDashboard(gateway: GatewayDeps): string {
     };
   });
 
+  function init() {
+    var stored = getKey();
+    if (stored) {
+      applyKey(stored);
+      loadUsage();
+      return;
+    }
+    // First run: no key saved yet in this browser — fetch the one the app
+    // generated for itself instead of making the user go find it in a file.
+    keyMsg.textContent = 'Fetching your key\u2026';
+    fetch('/v1/setup/key').then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (d) {
+      setKey(d.apiKey);
+      applyKey(d.apiKey);
+      keyMsg.textContent = 'Found automatically \u2014 ready to use.';
+      loadUsage();
+    }).catch(function () {
+      keyMsg.textContent = 'Could not fetch it automatically. It is in the .env file in the app folder, on the GATEWAY_API_KEY= line.';
+    });
+  }
+
   loadHealth();
-  loadUsage();
   renderSnippet();
+  init();
   setInterval(loadHealth, 5000);
 })();
 </script>

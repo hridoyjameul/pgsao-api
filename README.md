@@ -13,6 +13,8 @@ Point any existing OpenAI-SDK or Anthropic-SDK client — or n8n, or a script, o
 
 ## Quickstart
 
+Not a developer? See `docs/USER_GUIDE.md` for a plain-English, no-terminal-knowledge-needed walkthrough. The short version:
+
 ```bash
 git clone <this-repo>
 cd pgsao-api
@@ -22,15 +24,15 @@ npm install
 # this gateway uses your existing subscription auth, not a separate API key.
 # (Re-check current Agent SDK usage-pool policy: https://support.claude.com/en/articles/15036540)
 
-cp .env.example .env
-node -e "console.log('GATEWAY_API_KEY=cg_local_' + require('crypto').randomBytes(24).toString('hex'))"
-# paste the printed line into .env
-
 npm run dev        # or: npm run build && npm start
 curl http://localhost:8787/health
 ```
 
-Then open **http://localhost:8787/dashboard** — a web control panel (no separate install, no build step) for everything below: live status, usage stats, session management, and ready-to-copy curl/SDK snippets. Paste your `GATEWAY_API_KEY` in there once; it's kept only in that browser's localStorage.
+On Windows, double-clicking `start.bat` does the `npm install` + `npm run dev` + opening the dashboard for you — no terminal required at all.
+
+There's no manual config step: on first run, the app creates its own `.env` (from `.env.example`) and generates its own `GATEWAY_API_KEY` automatically if one isn't already set. (You can still set either by hand first if you want to pin specific values — the auto-setup only fills in what's missing.)
+
+Then open **http://localhost:8787/dashboard** — a web control panel (no separate install, no build step) for everything below: live status, usage stats, session management, and ready-to-copy curl/SDK snippets. It fetches your auto-generated `GATEWAY_API_KEY` for you on first load (from this machine only) and keeps it in that browser's localStorage from then on.
 
 ### Test both routes
 

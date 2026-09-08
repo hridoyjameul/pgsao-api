@@ -12,6 +12,7 @@ import { registerModelsRoute } from './routes/models.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
 import { registerUsageRoute } from './routes/usage.js';
 import { registerDashboardRoute } from './routes/dashboard.js';
+import { registerSetupRoute } from './routes/setup.js';
 import { registerAnthropicCompatRoute } from './routes/anthropic-compat.js';
 import { registerOpenAiCompatRoute } from './routes/openai-compat.js';
 import { ApiError } from './errors/api-error.js';
@@ -73,6 +74,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   registerSessionsRoutes(app, gateway);
   registerUsageRoute(app, gateway);
   registerDashboardRoute(app, gateway);
+  registerSetupRoute(app, gateway);
   if (config.ENABLE_ANTHROPIC_COMPAT_ROUTE) registerAnthropicCompatRoute(app, gateway);
   if (config.ENABLE_OPENAI_COMPAT_ROUTE) registerOpenAiCompatRoute(app, gateway);
 
