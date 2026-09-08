@@ -11,14 +11,18 @@ import { GATEWAY_VERSION } from '../utils/version.js';
  * never sent anywhere but this gateway's own API.
  */
 export function registerDashboardRoute(app: FastifyInstance, gateway: GatewayDeps): void {
-  app.get('/dashboard', async (_request, reply) => {
-    reply.type('text/html').send(renderDashboard(gateway));
+  app.get('/dashboard', async (request, reply) => {
+    reply.type('text/html').send(renderDashboard(gateway, request.headers.host));
   });
 }
 
-function renderDashboard(gateway: GatewayDeps): string {
+function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   const { config } = gateway;
-  const baseUrl = `http://${config.HOST}:${config.PORT}`;
+  // Prefer the Host header the browser actually used (e.g. "localhost:8787")
+  // over config.HOST — under Docker, config.HOST is "0.0.0.0" (the bind
+  // address inside the container), which isn't something you can paste into
+  // another app's Base URL field.
+  const baseUrl = `http://${requestHost ?? `${config.HOST}:${config.PORT}`}`;
 
   // Built server-side and handed to the page as JSON so no manual escaping
   // is needed across the TS -> HTML -> browser-JS layers. Placeholders only
@@ -168,7 +172,8 @@ function renderDashboard(gateway: GatewayDeps): string {
 
   <div class="field-label">API key</div>
   <div class="row">
-    <input type="text" id="apiKeyCopy" class="keybox" readonly>
+    <input type="password" id="apiKeyCopy" class="keybox" readonly>
+    <button id="toggleKeyCopy">show</button>
     <button data-copy-target="apiKeyCopy">copy</button>
   </div>
 </div>
@@ -225,6 +230,10 @@ function renderDashboard(gateway: GatewayDeps): string {
   document.getElementById('toggleKey').onclick = function () {
     keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
     this.textContent = keyInput.type === 'password' ? 'show' : 'hide';
+  };
+  document.getElementById('toggleKeyCopy').onclick = function () {
+    keyCopyInput.type = keyCopyInput.type === 'password' ? 'text' : 'password';
+    this.textContent = keyCopyInput.type === 'password' ? 'show' : 'hide';
   };
 
   function copyToClipboard(text, btn) {
