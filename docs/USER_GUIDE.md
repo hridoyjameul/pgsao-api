@@ -84,7 +84,7 @@ For **n8n** specifically: use its built-in **"OpenAI Chat Model"** node, and ent
 
 | Problem | Fix |
 |---|---|
-| Dashboard's "Claude account" step says "Not connected" | Open Claude Code on this computer and make sure you're logged in, then reload the dashboard page. |
+| Dashboard's "Claude account" step says "Not connected" | Open Claude Code on this computer and make sure you're logged in, then reload the dashboard page. On Windows, if you're running via Docker, this is expected — see the Docker note in section 7 and use `start.bat` instead. |
 | Dashboard shows "could not fetch [key] automatically" | Restart the app (close both windows, double-click `start.bat` again). |
 | `start.bat` window closes immediately or shows an error | Make sure Node.js is installed. Re-run `start.bat` and read the message in the window before it closes. |
 | Browser shows "can't connect" right after starting | The app takes a few seconds to start — wait a moment and reload `http://localhost:8787/dashboard`. |
@@ -110,6 +110,8 @@ Your key is stored in a file named `.env` in the project folder. To generate a b
 The dashboard has an "Advanced (for developers)" section at the bottom with usage stats, session management, and ready-to-copy `curl`/SDK code snippets. None of this is required for normal use — it's there if you (or someone helping you) ever wants to script against the gateway directly instead of using another app's built-in settings screen.
 
 If you're comfortable with Docker, `docker compose up -d --build` runs the whole app in a container instead — see `README.md` for details.
+
+**Windows + Docker known limitation:** on Windows, Claude Code stores your login in Windows Credential Manager, not a file — Docker containers can't reach that. Running via Docker on Windows will show "Not connected" for the Claude account even when you're logged in. Use `start.bat` (native, no Docker) on Windows instead; Docker works fine for the Claude login on Mac/Linux, where it's stored in a file under `~/.claude`.
 
 ---
 
