@@ -16,17 +16,14 @@ Point any existing OpenAI-SDK or Anthropic-SDK client — or n8n, or a script, o
 Not a developer? See `docs/USER_GUIDE.md` for a plain-English, no-terminal-knowledge-needed walkthrough. The short version:
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/hridoyjameul/pgsao-api.git
 cd pgsao-api
 npm install
-
-# Make sure you're logged into Claude Code / the Agent SDK on this machine —
-# this gateway uses your existing subscription auth, not a separate API key.
-# (Re-check current Agent SDK usage-pool policy: https://support.claude.com/en/articles/15036540)
-
-npm run dev        # or: npm run build && npm start
+npm run dev
 curl http://localhost:8787/health
 ```
+
+Make sure you're logged into Claude Code / the Agent SDK on this machine first — this gateway uses your existing subscription auth, not a separate API key. (Re-check current Agent SDK usage-pool policy: https://support.claude.com/en/articles/15036540). `npm run dev` can be swapped for `npm run build && npm start` if you'd rather run the built output.
 
 On Windows, double-clicking `start.bat` does the `npm install` + `npm run dev` + opening the dashboard for you — no terminal required at all.
 
