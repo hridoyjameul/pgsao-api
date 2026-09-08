@@ -30,7 +30,7 @@ if errorlevel 1 (
   echo.
 )
 
-docker inspect pgsao-api >nul 2>&1
+docker container inspect pgsao-api >nul 2>&1
 if not errorlevel 1 (
   echo Container already exists - starting it...
   docker start pgsao-api >nul
