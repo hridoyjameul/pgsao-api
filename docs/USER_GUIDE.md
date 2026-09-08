@@ -105,7 +105,18 @@ Your key is stored in a file named `.env` in the project folder. To generate a b
 
 ---
 
-## 7. Advanced options (safe to ignore)
+## 7. Uninstalling
+
+PGSAO API doesn't install anything outside its own project folder — no Windows service, no registry entries, nothing added to your system PATH. To remove it:
+
+1. Close the app (close both windows if they're still open).
+2. Delete the project folder.
+
+That's it. Your API key, settings, and any local usage data live only inside that folder (in `.env` and the `data/` subfolder), so deleting it removes everything. If you're running it via Docker instead, also run `docker stop pgsao-api && docker rm pgsao-api` first to remove the container, and `docker rmi pgsao-api` if you want the image gone too.
+
+---
+
+## 8. Advanced options (safe to ignore)
 
 The dashboard has an "Advanced (for developers)" section at the bottom with usage stats, session management, and ready-to-copy `curl`/SDK code snippets. None of this is required for normal use — it's there if you (or someone helping you) ever wants to script against the gateway directly instead of using another app's built-in settings screen.
 
@@ -115,7 +126,7 @@ If you're comfortable with Docker, `docker compose up -d --build` runs the whole
 
 ---
 
-## 8. GitHub — getting updates, reporting problems
+## 9. GitHub — getting updates, reporting problems
 
 - **Repository:** https://github.com/hridoyjameul/pgsao-api
 - **Get the latest version:** in the project folder, run `git pull`, then run `start.bat` (or `npm install`) again in case anything changed.
@@ -124,7 +135,7 @@ If you're comfortable with Docker, `docker compose up -d --build` runs the whole
 
 ---
 
-## 9. Other documents in this repo (for developers)
+## 10. Other documents in this repo (for developers)
 
 - `README.md` — technical quickstart and overview
 - `docs/api.md` — full API reference
