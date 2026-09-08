@@ -12,6 +12,9 @@ import { APP_ICON_BASE64 } from '../utils/icon.js';
  * never sent anywhere but this gateway's own API.
  */
 export function registerDashboardRoute(app: FastifyInstance, gateway: GatewayDeps): void {
+  app.get('/', async (_request, reply) => {
+    reply.redirect('/dashboard');
+  });
   app.get('/dashboard', async (request, reply) => {
     reply.type('text/html').send(renderDashboard(gateway, request.headers.host));
   });
