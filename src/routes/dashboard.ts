@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { GatewayDeps } from '../app.js';
 import { GATEWAY_VERSION } from '../utils/version.js';
+import { APP_ICON_BASE64 } from '../utils/icon.js';
 
 /**
  * GET /dashboard — self-contained HTML control panel (no external assets/deps).
@@ -76,6 +77,8 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PGSAO API</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,${APP_ICON_BASE64}">
+<link rel="apple-touch-icon" href="data:image/png;base64,${APP_ICON_BASE64}">
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }

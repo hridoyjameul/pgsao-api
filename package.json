@@ -1,6 +1,6 @@
 {
   "name": "pgsao-api",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Personal Gateway for Anthropic/OpenAI API — expose your own Claude subscription behind spec-accurate OpenAI Chat Completions and Anthropic Messages compatible HTTP surfaces.",
   "license": "MIT",
   "private": true,

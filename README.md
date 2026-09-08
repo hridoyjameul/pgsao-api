@@ -66,11 +66,15 @@ Both real APIs are stateless — resend the full `messages` history every call, 
 
 ## Docker / cloud deployment
 
+On Windows, double-click `docker-start.bat` (stop with `docker-stop.bat`) — it builds the image and runs it with plain `docker run`, so it shows up as a single flat container in Docker Desktop instead of a collapsed compose stack. Otherwise:
+
 ```bash
 docker compose up -d --build
 ```
 
-The compose file binds the container's port to `127.0.0.1` on the host by default — **never publish a bare `8787:8787`** if you deploy this on a cloud VM; put it behind a reverse proxy/firewall (nginx, Caddy, Tailscale, an SSH tunnel) instead of exposing the port directly to the public internet. It also mounts your `~/.claude` credentials read-only so the containerized Agent SDK authenticates as the same account you're logged into on the host — set `CLAUDE_CONFIG_DIR` in your shell if that lives somewhere non-default (the plain `~/.claude` default has been confirmed to resolve correctly on Windows/Docker Desktop too, no override needed there in practice).
+Both produce the same container (same `Dockerfile`, port, env, volumes) — `docker compose` is still what you want if you're networking this alongside other Docker containers on a shared compose network (see the n8n Docker-mode section below).
+
+The port is bound to `127.0.0.1` on the host by default — **never publish a bare `8787:8787`** if you deploy this on a cloud VM; put it behind a reverse proxy/firewall (nginx, Caddy, Tailscale, an SSH tunnel) instead of exposing the port directly to the public internet. It also mounts your `~/.claude` credentials read-only so the containerized Agent SDK authenticates as the same account you're logged into on the host — set `CLAUDE_CONFIG_DIR` in your shell if that lives somewhere non-default (the plain `~/.claude` default has been confirmed to resolve correctly on Windows/Docker Desktop too, no override needed there in practice).
 
 Live-verified (2026-09-06): built and ran the image, confirmed `claude_auth_status: "ok"` from inside the container (credential mount works), called both `/v1/messages` and `/v1/chat/completions` against a live Claude account through the container, confirmed the SQLite volume persists to `./data` on the host, and confirmed the port is reachable only on `127.0.0.1` (`docker port` / `docker inspect`).
 
