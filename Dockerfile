@@ -16,7 +16,12 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# package-lock.json lacks the "libc" field for @anthropic-ai's platform binaries
+# (npm doesn't record it from the registry), so npm ci installs both the glibc
+# and musl native CLI binaries (~400MB combined) even though alpine only ever
+# uses the musl one. Prune the unused glibc build in the same layer as the
+# install so its bytes never end up in the final image.
+RUN npm ci --omit=dev && rm -rf node_modules/@anthropic-ai/claude-agent-sdk-linux-x64
 COPY --from=builder /app/dist ./dist
 
 EXPOSE 8787
