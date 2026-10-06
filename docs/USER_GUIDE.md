@@ -2,7 +2,7 @@
 
 A plain-English guide for **non-developers**. No terminal commands to memorize, no config files to edit by hand.
 
-**What this is:** PGSAO API gives your own AI accounts one local gateway API key you can paste into other apps. Claude and ChatGPT have separate routes. Gemini, Kimi, and Qwen have dashboard cards for future adapters.
+**What this is:** PGSAO API gives your own AI accounts one local gateway API key you can paste into other apps. Claude, ChatGPT and Kimi have separate routes. Gemini and Qwen have dashboard cards for future adapters.
 
 **GitHub repo:** https://github.com/hridoyjameul/pgsao-api
 
@@ -80,7 +80,7 @@ Most tools that let you "bring your own API key" ask for exactly two things:
 | Base URL / Endpoint (Anthropic/Claude-style, Claude-specific) | `http://localhost:8787/claude` |
 | API key | The key shown on your dashboard |
 
-Older clients using `http://localhost:8787/v1` or `http://localhost:8787` keep working. All ready routes use the same gateway key. ChatGPT's separate Base URL is `http://localhost:8787/chatgpt/v1`, but its current route is **Responses API streaming only**. It does not work as an OpenAI Chat Completions replacement in clients that only call `/chat/completions`. Its model list is `GET /chatgpt/v1/models`. Gemini, Kimi, and Qwen have no working URLs yet.
+Older clients using `http://localhost:8787/v1` or `http://localhost:8787` keep working. All ready routes use the same gateway key. ChatGPT's separate Base URL is `http://localhost:8787/chatgpt/v1`, but its current route is **Responses API streaming only**. It does not work as an OpenAI Chat Completions replacement in clients that only call `/chat/completions`. Its model list is `GET /chatgpt/v1/models`. Kimi needs a paid Kimi Code membership API key (create it in the Kimi Code console and paste it under **Advanced** on the Kimi card; free accounts do not work). Its Base URLs are `http://localhost:8787/kimi/v1` (OpenAI style) and `http://localhost:8787/kimi` (Anthropic style). Gemini and Qwen have no working URLs yet.
 
 For **n8n** specifically: use its built-in **"OpenAI Chat Model"** node, and enter the Base URL and key above as its credential. See `docs/n8n.md` in this repo for a more detailed walkthrough if needed.
 

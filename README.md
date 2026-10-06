@@ -1,6 +1,6 @@
 # PGSAO API
 
-**P**ersonal **G**ateway for **A**nthropic/**O**penAI **API** — a local, MIT-licensed gateway for your own AI accounts. Claude and ChatGPT have separate working routes. Gemini, Kimi, and Qwen retain status cards while their adapters are built.
+**P**ersonal **G**ateway for **A**nthropic/**O**penAI **API** — a local, MIT-licensed gateway for your own AI accounts. Claude, ChatGPT and Kimi have separate working routes. Gemini and Qwen retain status cards while their adapters are built.
 
 ```http
 POST /v1/chat/completions      (OpenAI Chat Completions shape)
@@ -82,7 +82,7 @@ curl -N http://localhost:8787/chatgpt/v1/responses \
   -d '{"model":"MODEL_SLUG_FROM_CATALOG","input":[{"role":"user","content":"Hello."}],"store":false,"stream":true}'
 ```
 
-The next adapter stages add Kimi Code, Qwen Coding Plan, and Gemini CLI routes under their own prefixes.
+Kimi Code is available at `/kimi/v1/chat/completions` and `/kimi/v1/messages` with a paid Kimi Code membership API key entered on the dashboard (free accounts do not work; this adapter has been tested against a fake upstream, not yet a live membership). The next adapter stages add Qwen Coding Plan and Gemini routes under their own prefixes.
 
 ## Sessions (optional extension)
 

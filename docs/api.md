@@ -1,6 +1,6 @@
 # API Reference
 
-Full machine-readable spec: `openapi.yaml`. This is the human-readable summary. Claude and ChatGPT have separate inference routes; Gemini, Kimi, and Qwen retain status cards.
+Full machine-readable spec: `openapi.yaml`. This is the human-readable summary. Claude, ChatGPT and Kimi have separate inference routes; Gemini and Qwen retain status cards.
 
 ## Auth
 
@@ -98,3 +98,17 @@ Standard, unmodified real-API behavior — the model proposes a call, execution 
 | `service_paused` | 503 | the dashboard has stopped admission of new inference requests |
 | `provider_error` | 502 | Claude itself errored (overloaded, server error, ...) |
 | (unexpected) | 500 | anything else |
+
+## Kimi (paid Kimi Code membership key required)
+
+Free Kimi accounts do not work. Create a key in the Kimi Code console and save it on the dashboard (or call the credentials route below). Callers use the Kimi provider's gateway key, never the membership key.
+
+| Route | Notes |
+| --- | --- |
+| `POST /kimi/v1/chat/completions` | OpenAI-compatible body forwarded to `https://api.kimi.com/coding/v1/chat/completions`. `model` is required. Streaming passes through. |
+| `POST /kimi/v1/messages` | Anthropic-compatible body forwarded to `https://api.kimi.com/coding/v1/messages`. `model` is required. Streaming passes through. |
+| `GET /kimi/v1/models` | Fixed list: `kimi-for-coding`, `kimi-for-coding-highspeed` (HighSpeed needs the Allegretto plan or above). |
+| `POST /v1/providers/kimi/credentials` | Body `{"apiKey":"..."}`. Validates with a model-list call, then stores the key privately. Needs the master gateway key. |
+| `DELETE /v1/providers/kimi/credentials` | Removes the saved key. Needs the master gateway key. |
+
+Errors: 429 `usage_limit_error` with `Retry-After` when Kimi's plan limit is reached, 503 `credential_error` when no key is saved or Kimi rejects it, 400 `invalid_request_error` for a missing `model` or a Kimi 400-class rejection, 502 `provider_error` otherwise. The gateway always sends its own `User-Agent: PGSAO-API/<version>`; Kimi treats a tampered client identifier as a violation. The key file defaults to `kimi.json` beside the ChatGPT credential file and can be moved with `KIMI_KEY_PATH`.

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dirname, join } from 'node:path';
 import { defaultChatGptCredentialsPath } from '../chatgpt/credential-store.js';
 
 // z.coerce.boolean() just calls Boolean(value), so env var "false" would
@@ -18,6 +19,7 @@ const ConfigSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   DATABASE_URL: z.string().default('./data/gateway.db'),
   CHATGPT_CREDENTIALS_PATH: z.string().min(1).optional(),
+  KIMI_KEY_PATH: z.string().min(1).optional(),
 
   // Defaults per spikes/FINDINGS.md's empirical concurrency-ceiling test, not PRD's placeholder value.
   MAX_CONCURRENT_REQUESTS: z.coerce.number().int().positive().default(3),
@@ -38,5 +40,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     const issues = result.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Invalid gateway configuration:\n${issues}`);
   }
-  return { ...result.data, CHATGPT_CREDENTIALS_PATH: result.data.CHATGPT_CREDENTIALS_PATH ?? defaultChatGptCredentialsPath(env) };
+  const chatGptPath = result.data.CHATGPT_CREDENTIALS_PATH ?? defaultChatGptCredentialsPath(env);
+  return { ...result.data, CHATGPT_CREDENTIALS_PATH: chatGptPath, KIMI_KEY_PATH: result.data.KIMI_KEY_PATH ?? join(dirname(chatGptPath), 'kimi.json') };
 }

@@ -101,6 +101,34 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
         `});`,
       ].join('\n') },
     },
+    kimi: {
+      'curl-openai': { label: 'cURL (OpenAI shape)', code: [
+        `curl ${baseUrl}/kimi/v1/chat/completions \\`,
+        `  -H "Authorization: Bearer YOUR_KIMI_API_KEY" \\`,
+        `  -H "Content-Type: application/json" \\`,
+        `  -d '{"model":"kimi-for-coding","messages":[{"role":"user","content":"Hello."}]}'`,
+      ].join('\n') },
+      'curl-anthropic': { label: 'cURL (Anthropic shape)', code: [
+        `curl ${baseUrl}/kimi/v1/messages \\`,
+        `  -H "x-api-key: YOUR_KIMI_API_KEY" \\`,
+        `  -H "anthropic-version: 2023-06-01" \\`,
+        `  -H "Content-Type: application/json" \\`,
+        `  -d '{"model":"kimi-for-coding","max_tokens":256,"messages":[{"role":"user","content":"Hello."}]}'`,
+      ].join('\n') },
+      'sdk-openai': { label: 'OpenAI SDK', code: [
+        `import OpenAI from "openai";`,
+        ``,
+        `const client = new OpenAI({`,
+        `  apiKey: "YOUR_KIMI_API_KEY",`,
+        `  baseURL: "${baseUrl}/kimi/v1",`,
+        `});`,
+        ``,
+        `const res = await client.chat.completions.create({`,
+        `  model: "kimi-for-coding",`,
+        `  messages: [{ role: "user", content: "Hello." }],`,
+        `});`,
+      ].join('\n') },
+    },
   };
 
   return `<!doctype html>
@@ -304,7 +332,8 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
         select(id);
         var p = find(id), s = tileState(p);
         if (s.disabled) return;
-        if (s.connect) startConnect(null);
+        if (p.setupAction === 'enter_key') { $('advanced').open = true; }
+        else if (s.connect) startConnect(null);
         else if (p.api.ready) setServing(id, !p.serving);
       };
     });
@@ -345,6 +374,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     if (!p.api.ready) {
       var why = p.setupAction === 'coming_soon' ? 'Coming soon. ' + p.displayName + ' is not available in this version yet.'
         : p.id === 'chatgpt' ? 'Connect a paid ChatGPT subscription account (free accounts do not work) to get a ChatGPT Base URL and API key.'
+        : p.id === 'kimi' ? 'Add a paid Kimi Code membership API key under Advanced to get a Kimi Base URL and API key. Free accounts do not work.'
         : p.setupAction === 'enable_route' ? 'Enable a Claude compatibility route in .env, then restart.'
         : 'Log in to ' + p.displayName + ' on this computer, then reload this page.';
       body.innerHTML = '<div class="muted">' + esc(why) + '</div>';
@@ -411,8 +441,28 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
         '</select><button id="continueChatgpt" class="primary">Continue with ChatGPT</button>' +
         (p.connection.state === 'connected' ? '<button id="disconnectChatgpt">Disconnect ChatGPT</button>' : '') + '</div>';
     }
+    if (p.id === 'kimi') {
+      html += '<div class="label">Kimi membership key</div><div class="notice"><strong>Paid Kimi membership key required.</strong> Free accounts do not work. Create a key in the <a href="https://www.kimi.com/code/console" target="_blank" rel="noopener noreferrer">Kimi Code console</a>; the desktop app login cannot be reused.</div>' +
+        '<div class="row"><input type="password" id="kimiKeyInput" class="mono" autocomplete="off" placeholder="Paste Kimi Code API key"><button id="saveKimiKey" class="primary">Save key</button>' +
+        (p.connection.state !== 'not_configured' ? '<button id="removeKimiKey">Remove key</button>' : '') + '</div>';
+    }
     html += '<div id="routeUsage"></div>';
     $('advancedBody').innerHTML = html;
+    if (p.id === 'kimi') {
+      $('saveKimiKey').onclick = function () {
+        var input = $('kimiKeyInput'), btn = this;
+        if (!input.value) return;
+        btn.disabled = true;
+        api('/v1/providers/kimi/credentials', 'POST', { apiKey: input.value })
+          .then(function () { input.value = ''; $('notice').textContent = 'Kimi key saved.'; loadProviders(); })
+          .catch(function (e) { btn.disabled = false; $('notice').textContent = 'Could not save Kimi key (' + e.message + '). Check the key and your membership.'; });
+      };
+      var rk = $('removeKimiKey');
+      if (rk) rk.onclick = function () {
+        rk.disabled = true;
+        api('/v1/providers/kimi/credentials', 'DELETE').then(function () { $('notice').textContent = 'Kimi key removed.'; loadProviders(); }).catch(function () { rk.disabled = false; });
+      };
+    }
     if (p.id === 'chatgpt') {
       $('continueChatgpt').onclick = function () { this.disabled = true; startConnect($('accountPicker').value || null); };
       var d = $('disconnectChatgpt');
@@ -425,7 +475,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
       };
     }
     if (p.api.ready) {
-      var path = p.id === 'chatgpt' ? '/chatgpt/v1/models' : '/claude/v1/models';
+      var path = p.id === 'chatgpt' ? '/chatgpt/v1/models' : p.id === 'kimi' ? '/kimi/v1/models' : '/claude/v1/models';
       api(path).then(function (m) {
         var names = p.id === 'chatgpt' ? (m.models || []).map(function (x) { return x.display_name + ' (' + x.slug + ')'; }) : (m.data || []).map(function (x) { return x.id; });
         var line = $('modelsLine');

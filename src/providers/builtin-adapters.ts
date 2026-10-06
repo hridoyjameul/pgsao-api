@@ -9,10 +9,12 @@ import { registerOpenAiCompatRoute } from '../routes/openai-compat.js';
 import type { ChatGptConnection } from '../chatgpt/connection.js';
 import { registerChatGptModelsRoute } from '../routes/chatgpt-models.js';
 import { registerChatGptResponsesRoute } from '../routes/chatgpt-responses.js';
+import type { KimiConnection } from '../kimi/connection.js';
+import { registerKimiRoutes } from '../routes/kimi.js';
 
 type Detector = typeof detectExecutable;
 
-export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, config: Config, chatGptConnection: ChatGptConnection, detector: Detector = detectExecutable): ProviderAdapter[] {
+export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, config: Config, chatGptConnection: ChatGptConnection, kimiConnection: KimiConnection, detector: Detector = detectExecutable): ProviderAdapter[] {
   const detected = (name: string): ProviderStatus['client'] => ({
     state: detector(name) ? 'detected' : 'not_detected', method: `${name} on PATH`,
   });
@@ -53,9 +55,17 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
       registerChatGptResponsesRoute(app, gateway);
     },
   };
+  const kimi: ProviderAdapter = {
+    id: 'kimi', displayName: 'Kimi', connectionMethod: 'vendor_key',
+    detectClient: async () => ({ state: 'not_required', method: 'Kimi Code membership API key' }),
+    getConnection: () => kimiConnection.status(),
+    capabilities: [{ shape: 'openai_chat', basePath: '/kimi/v1' }, { shape: 'anthropic_messages', basePath: '/kimi' }],
+    listModels: async () => [{ id: 'kimi-for-coding' }, { id: 'kimi-for-coding-highspeed' }],
+    registerRoutes: (app, gateway) => registerKimiRoutes(app, gateway),
+  };
   return [claude,
     chatgpt,
     pending('gemini', 'Gemini', 'gemini', 'cli_login'),
-    pending('kimi', 'Kimi', 'kimi', 'vendor_key'),
+    kimi,
     pending('qwen', 'Qwen', 'qwen', 'vendor_key')];
 }

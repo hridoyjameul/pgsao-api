@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PGSAO API
-  description: Personal AI gateway with separate Claude and ChatGPT routes. Gemini, Kimi, and Qwen have status cards.
+  description: Personal AI gateway with separate Claude, ChatGPT and Kimi routes. Gemini and Qwen have status cards.
   version: 0.0.2
   license:
     name: MIT

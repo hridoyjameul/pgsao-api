@@ -25,6 +25,9 @@ import { ChatGptOAuth, type OAuthFetch } from './chatgpt/oauth.js';
 import { registerChatGptAuthRoutes } from './routes/chatgpt-auth.js';
 import { ChatGptConnection } from './chatgpt/connection.js';
 import { ChatGptUpstream } from './chatgpt/upstream.js';
+import { KimiConnection, KimiKeyStore } from './kimi/connection.js';
+import { KimiUpstream } from './kimi/upstream.js';
+import { registerKimiRoutes } from './routes/kimi.js';
 
 export interface GatewayDeps {
   config: Config;
@@ -42,6 +45,9 @@ export interface GatewayDeps {
   chatGptConnection: ChatGptConnection;
   chatGptUpstream: ChatGptUpstream;
   chatGptQueue: ConcurrencyQueue;
+  kimiConnection: KimiConnection;
+  kimiUpstream: KimiUpstream;
+  kimiQueue: ConcurrencyQueue;
 }
 
 export interface BuildAppOptions {
@@ -52,6 +58,7 @@ export interface BuildAppOptions {
   dbPath?: string;
   chatGptStore?: ChatGptCredentialStore;
   chatGptFetch?: OAuthFetch;
+  kimiFetch?: typeof fetch;
 }
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -78,9 +85,12 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const chatGptConnection = new ChatGptConnection(chatGptStore, opts.chatGptFetch);
   const chatGptUpstream = new ChatGptUpstream(chatGptConnection, opts.chatGptFetch);
   const chatGptQueue = new ConcurrencyQueue({ maxConcurrent: config.MAX_CONCURRENT_REQUESTS, maxQueueSize: config.QUEUE_MAX_SIZE, requestTimeoutMs: config.REQUEST_TIMEOUT_MS });
-  for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptConnection)) providerRegistry.register(adapter);
+  const kimiConnection = new KimiConnection(new KimiKeyStore(config.KIMI_KEY_PATH!));
+  const kimiUpstream = new KimiUpstream(kimiConnection, opts.kimiFetch);
+  const kimiQueue = new ConcurrencyQueue({ maxConcurrent: config.MAX_CONCURRENT_REQUESTS, maxQueueSize: config.QUEUE_MAX_SIZE, requestTimeoutMs: config.REQUEST_TIMEOUT_MS });
+  for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptConnection, kimiConnection)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, requireProviderKey, providerKeys, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection, chatGptUpstream, chatGptQueue };
+  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, requireProviderKey, providerKeys, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection, chatGptUpstream, chatGptQueue, kimiConnection, kimiUpstream, kimiQueue };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {

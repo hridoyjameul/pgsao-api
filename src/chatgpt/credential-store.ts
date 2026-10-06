@@ -63,7 +63,7 @@ async function currentUserSid(): Promise<string> {
   return userSidPromise;
 }
 
-async function protectWindows(path: string): Promise<void> {
+export async function protectWindows(path: string): Promise<void> {
   const sid = await currentUserSid();
   await run('icacls', [path, '/inheritance:r', '/grant:r', `*${sid}:(F)`, `*${SYSTEM_SID}:(F)`, `*${ADMIN_SID}:(F)`]);
   const entries = await windowsAclEntries(path);
@@ -97,7 +97,7 @@ async function verifyWindows(path: string, expectedSid?: string): Promise<void> 
   }
 }
 
-async function verifySecure(path: string, directory: boolean): Promise<void> {
+export async function verifySecure(path: string, directory: boolean): Promise<void> {
   const info = await lstat(path);
   if (info.isSymbolicLink() || (directory ? !info.isDirectory() : !info.isFile())) throw new Error('Insecure ChatGPT credential path');
   if (process.platform === 'win32') await verifyWindows(path);
