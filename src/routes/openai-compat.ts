@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { GatewayDeps } from '../app.js';
 import { OpenAiChatCompletionsRequestSchema } from '../schemas/openai-messages.js';
 import { openAiRequestToInternal, internalResponseToOpenAi, errorToOpenAiBody, toOpenAiChunks } from '../translator/openai.js';
@@ -18,14 +18,14 @@ function sendOpenAiError(reply: FastifyReply, err: unknown): void {
 }
 
 /** POST /v1/chat/completions — OpenAI-compatible (PRD §7.A). Reuses the same InternalClaudeRequest pipeline the Anthropic route established. */
-export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: GatewayDeps): void {
+export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: GatewayDeps, paths: readonly string[]): void {
   const { sessionManager, claudeProvider, queue, credentialMonitor, requireApiKey } = gateway;
 
   // Auth is checked INSIDE the handler's own try/catch (not a Fastify
   // preHandler) so a rejection renders through this route's own OpenAI
   // error shape — a preHandler's thrown error bypasses the handler entirely
   // and would otherwise fall through to Fastify's generic 500 response.
-  app.post('/v1/chat/completions', async (request, reply) => {
+  const handler = async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = generateRequestId();
     const startedAt = Date.now();
     let sessionIdForLog: string | undefined;
@@ -110,5 +110,6 @@ export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: Gateway
         reply.raw.end();
       }
     }
-  });
+  };
+  for (const path of paths) app.post(path, handler);
 }

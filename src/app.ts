@@ -8,13 +8,10 @@ import { ConcurrencyQueue } from './concurrency/queue.js';
 import { createApiKeyPreHandler } from './auth/api-key.js';
 import { createLoggerOptions } from './utils/logger.js';
 import { registerHealthRoute } from './routes/health.js';
-import { registerModelsRoute } from './routes/models.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
 import { registerUsageRoute } from './routes/usage.js';
 import { registerDashboardRoute } from './routes/dashboard.js';
 import { registerSetupRoute } from './routes/setup.js';
-import { registerAnthropicCompatRoute } from './routes/anthropic-compat.js';
-import { registerOpenAiCompatRoute } from './routes/openai-compat.js';
 import { ApiError } from './errors/api-error.js';
 import { ProviderRegistry } from './providers/registry.js';
 import { createBuiltinAdapters } from './providers/builtin-adapters.js';
@@ -77,13 +74,11 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   registerHealthRoute(app, gateway);
   registerProvidersRoute(app, gateway);
-  registerModelsRoute(app, gateway);
   registerSessionsRoutes(app, gateway);
   registerUsageRoute(app, gateway);
   registerDashboardRoute(app, gateway);
   registerSetupRoute(app, gateway);
-  if (config.ENABLE_ANTHROPIC_COMPAT_ROUTE) registerAnthropicCompatRoute(app, gateway);
-  if (config.ENABLE_OPENAI_COMPAT_ROUTE) registerOpenAiCompatRoute(app, gateway);
+  providerRegistry.registerRoutes(app, gateway);
 
   // Every route gates on credentialMonitor.status — without this, it starts
   // at "not yet checked" and every request 503s until CREDENTIAL_CHECK_INTERVAL_MS

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { GatewayDeps } from '../app.js';
 import { AnthropicMessagesRequestSchema } from '../schemas/anthropic-messages.js';
 import { anthropicRequestToInternal, internalResponseToAnthropic, errorToAnthropicBody, toAnthropicSSE } from '../translator/anthropic.js';
@@ -18,14 +18,14 @@ function sendAnthropicError(reply: FastifyReply, err: unknown): void {
 }
 
 /** POST /v1/messages — Anthropic-compatible (PRD §7.B). Built first per the Anthropic-first build order (lower impedance to the Claude Adapter's native shape). */
-export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: GatewayDeps): void {
+export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: GatewayDeps, paths: readonly string[]): void {
   const { sessionManager, claudeProvider, queue, credentialMonitor, requireApiKey } = gateway;
 
   // Auth is checked INSIDE the handler's own try/catch (not a Fastify
   // preHandler) so a rejection renders through this route's own Anthropic
   // error shape — a preHandler's thrown error bypasses the handler entirely
   // and would otherwise fall through to Fastify's generic 500 response.
-  app.post('/v1/messages', async (request, reply) => {
+  const handler = async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = generateRequestId();
     const startedAt = Date.now();
     let sessionIdForLog: string | undefined;
@@ -104,5 +104,6 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
         reply.raw.end();
       }
     }
-  });
+  };
+  for (const path of paths) app.post(path, handler);
 }

@@ -3,6 +3,9 @@ import type { CredentialMonitor } from '../auth/credential-monitor.js';
 import { listModelAliases } from '../config/models.js';
 import { detectExecutable } from './detect-client.js';
 import type { ProviderAdapter, ProviderId, ProviderStatus } from './registry.js';
+import { registerModelsRoute } from '../routes/models.js';
+import { registerAnthropicCompatRoute } from '../routes/anthropic-compat.js';
+import { registerOpenAiCompatRoute } from '../routes/openai-compat.js';
 
 type Detector = typeof detectExecutable;
 
@@ -27,9 +30,15 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
     capabilities: [
       ...(config.ENABLE_OPENAI_COMPAT_ROUTE ? [{ shape: 'openai_chat' as const, basePath: '/v1', legacy: true }] : []),
       ...(config.ENABLE_ANTHROPIC_COMPAT_ROUTE ? [{ shape: 'anthropic_messages' as const, basePath: '/', legacy: true }] : []),
+      ...(config.ENABLE_OPENAI_COMPAT_ROUTE ? [{ shape: 'openai_chat' as const, basePath: '/claude/v1' }] : []),
+      ...(config.ENABLE_ANTHROPIC_COMPAT_ROUTE ? [{ shape: 'anthropic_messages' as const, basePath: '/claude' }] : []),
     ],
     listModels: async () => listModelAliases().map((id) => ({ id })),
-    registerRoutes: () => {},
+    registerRoutes: (app, gateway) => {
+      registerModelsRoute(app, gateway, ['/v1/models', '/claude/v1/models']);
+      if (config.ENABLE_ANTHROPIC_COMPAT_ROUTE) registerAnthropicCompatRoute(app, gateway, ['/v1/messages', '/claude/v1/messages']);
+      if (config.ENABLE_OPENAI_COMPAT_ROUTE) registerOpenAiCompatRoute(app, gateway, ['/v1/chat/completions', '/claude/v1/chat/completions']);
+    },
   };
   return [claude,
     pending('chatgpt', 'ChatGPT', null, 'oauth'),
