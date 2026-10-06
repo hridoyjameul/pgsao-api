@@ -15,6 +15,7 @@ export interface ChatGptAccount {
   issuer: string;
   subject: string;
   email?: string;
+  planType?: string;
   scopes: string[];
   accessToken: string;
   refreshToken: string;
@@ -44,6 +45,7 @@ function validateState(value: unknown): ChatGptStoreState {
     if (!item || typeof item !== 'object') throw new Error('Invalid ChatGPT credential file');
     const a = item as Record<string, unknown>;
     if (['registrationId', 'clientId', 'issuer', 'subject', 'accessToken', 'refreshToken', 'idToken'].some((k) => typeof a[k] !== 'string')
+      || (a.planType !== undefined && typeof a.planType !== 'string')
       || !Array.isArray(a.scopes) || !a.scopes.every((s: unknown) => typeof s === 'string') || typeof a.expiresAt !== 'number') {
       throw new Error('Invalid ChatGPT credential file');
     }

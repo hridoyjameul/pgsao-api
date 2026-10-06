@@ -26,7 +26,10 @@ export class ChatGptUpstream {
     if (response.status === 401 || response.status === 403) throw new ApiError('credential_error', 'Reconnect ChatGPT');
     if (response.status === 429) {
       const retry = Number(response.headers.get('retry-after'));
-      throw new ApiError('usage_limit_error', 'ChatGPT usage limit reached', Number.isFinite(retry) && retry > 0 ? { retryAfterSeconds: Math.min(retry, 3600) } : {});
+      const retryAfterSeconds = Number.isFinite(retry) && retry > 0 ? Math.min(retry, 3600) : undefined;
+      this.connection.noteLimit(retryAfterSeconds);
+      const plan = await this.connection.planLabel();
+      throw new ApiError('usage_limit_error', `ChatGPT${plan ? ` ${plan} plan` : ''} usage limit reached`, retryAfterSeconds ? { retryAfterSeconds } : {});
     }
     if (!response.ok) throw new ApiError('provider_error', 'ChatGPT upstream error');
     return response;

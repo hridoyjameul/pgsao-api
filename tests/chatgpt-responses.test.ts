@@ -29,7 +29,7 @@ async function fixture(sse: string | string[] = successSse, connected = true, up
   const app = await buildApp({ config, claudeProvider, dbPath: ':memory:', chatGptFetch: http });
   const post = (payload: unknown = body, key = TEST_API_KEY) => app.inject({ method: 'POST', url: '/chatgpt/v1/responses', headers: { authorization: `Bearer ${key}` }, payload });
   const usage = () => app.inject({ method: 'GET', url: '/v1/usage', headers: { 'x-api-key': TEST_API_KEY } });
-  return { app, calls, claudeProvider, post, usage };
+  return { app, calls, claudeProvider, post, usage, storePath: store.path };
 }
 
 describe('ChatGPT Responses SSE', () => {
@@ -114,5 +114,19 @@ describe('ChatGPT Responses SSE', () => {
       expect((await limited.post()).statusCode).toBe(429);
       expect(limited.claudeProvider.lastRequest).toBeUndefined();
     } finally { await limited.app.close(); }
+  });
+
+  it('names the free plan in the limit error and dashboard status', async () => {
+    const f = await fixture('usage limit', true, 429);
+    try {
+      const store = new ChatGptCredentialStore(f.storePath);
+      await store.update((state) => { state.accounts[0]!.planType = 'free'; });
+      const res = await f.post();
+      expect(res.statusCode).toBe(429);
+      expect(res.body).toContain('ChatGPT Free plan usage limit reached');
+      const providers = await f.app.inject({ method: 'GET', url: '/v1/providers', headers: { authorization: `Bearer ${TEST_API_KEY}` } });
+      expect(providers.body).toContain('(Free)');
+      expect(providers.body).toContain('limit reached until');
+    } finally { await f.app.close(); }
   });
 });

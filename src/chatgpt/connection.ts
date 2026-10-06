@@ -6,9 +6,14 @@ const ISSUER = 'https://auth.openai.com';
 const TOKEN_URL = `${ISSUER}/api/accounts/oauth/token`;
 const DISCOVERY_URL = `${ISSUER}/.well-known/openid-configuration`;
 
+function planName(planType: string): string {
+  return planType.charAt(0).toUpperCase() + planType.slice(1);
+}
+
 export class ChatGptConnection {
   private refreshing?: { registrationId: string; promise: Promise<string> };
   private disconnecting = false;
+  private limitedUntil = 0;
 
   constructor(private readonly store: ChatGptCredentialStore, private readonly http: OAuthFetch = fetch) {}
 
@@ -17,9 +22,22 @@ export class ChatGptConnection {
     const account = state.accounts.find((item) => item.registrationId === state.selectedRegistrationId);
     const registrations = state.accounts.map((item) => ({ registrationId: item.registrationId, label: item.email || `ChatGPT account ${item.registrationId.slice(0, 8)}`, selected: item.registrationId === state.selectedRegistrationId }));
     if (!account) return { state: 'not_configured', registrations };
+    const plan = account.planType ? ` (${planName(account.planType)})` : '';
+    const limit = this.limitedUntil > Date.now() ? ` - limit reached until ${new Date(this.limitedUntil).toLocaleTimeString()}` : '';
     return account.accessToken && account.refreshToken
-      ? { state: 'connected', detail: account.email || 'ChatGPT account connected', registrations }
+      ? { state: 'connected', detail: `${account.email || 'ChatGPT account connected'}${plan}${limit}`, registrations }
       : { state: 'disconnected', detail: account.email || 'Reconnect ChatGPT', registrations };
+  }
+
+  /** Plan label like "Free" for the selected account, or undefined when unknown. */
+  async planLabel(): Promise<string | undefined> {
+    const state = await this.store.load().catch(() => undefined);
+    const planType = state?.accounts.find((item) => item.registrationId === state.selectedRegistrationId)?.planType;
+    return planType ? planName(planType) : undefined;
+  }
+
+  noteLimit(retryAfterSeconds?: number): void {
+    this.limitedUntil = Date.now() + (retryAfterSeconds ?? 300) * 1000;
   }
 
   async getAccessToken(): Promise<string> {

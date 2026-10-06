@@ -28,6 +28,13 @@ async function boundedJson(response: Response): Promise<Record<string, unknown>>
   return parsed as Record<string, unknown>;
 }
 
+export function planTypeFromClaims(payload: Record<string, unknown>): string | undefined {
+  const auth = payload['https://api.openai.com/auth'];
+  const nested = auth && typeof auth === 'object' ? (auth as Record<string, unknown>).chatgpt_plan_type : undefined;
+  const value = typeof nested === 'string' ? nested : payload.chatgpt_plan_type;
+  return typeof value === 'string' && /^[a-z0-9_ -]{1,32}$/i.test(value) ? value.toLowerCase() : undefined;
+}
+
 export class ChatGptOAuth {
   private readonly pending = new Map<string, PendingAttempt>();
 
@@ -96,6 +103,7 @@ export class ChatGptOAuth {
       const account: ChatGptAccount = {
         registrationId: attempt.registrationId, clientId, issuer: ISSUER, subject: verified.payload.sub,
         ...(typeof verified.payload.email === 'string' ? { email: verified.payload.email } : {}),
+        ...(planTypeFromClaims(verified.payload) ? { planType: planTypeFromClaims(verified.payload) } : {}),
         scopes, accessToken: tokens.access_token, refreshToken: tokens.refresh_token, idToken: tokens.id_token,
         expiresAt: Date.now() + tokens.expires_in * 1000,
       };
