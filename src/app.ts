@@ -19,6 +19,8 @@ import { registerProvidersRoute } from './routes/providers.js';
 import { ServingGate } from './control/serving-gate.js';
 import { registerControlRoute } from './routes/control.js';
 import { ChatGptCredentialStore } from './chatgpt/credential-store.js';
+import { ChatGptOAuth, type OAuthFetch } from './chatgpt/oauth.js';
+import { registerChatGptAuthRoutes } from './routes/chatgpt-auth.js';
 
 export interface GatewayDeps {
   config: Config;
@@ -30,6 +32,7 @@ export interface GatewayDeps {
   providerRegistry: ProviderRegistry;
   servingGate: ServingGate;
   chatGptStore: ChatGptCredentialStore;
+  chatGptOAuth: ChatGptOAuth;
 }
 
 export interface BuildAppOptions {
@@ -39,6 +42,7 @@ export interface BuildAppOptions {
   /** Override for tests, e.g. ':memory:'. Defaults to config.DATABASE_URL. */
   dbPath?: string;
   chatGptStore?: ChatGptCredentialStore;
+  chatGptFetch?: OAuthFetch;
 }
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -57,9 +61,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const providerRegistry = new ProviderRegistry();
   const servingGate = new ServingGate();
   const chatGptStore = opts.chatGptStore ?? new ChatGptCredentialStore(config.CHATGPT_CREDENTIALS_PATH);
+  const chatGptOAuth = new ChatGptOAuth(chatGptStore, opts.chatGptFetch);
   for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptStore)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate, chatGptStore };
+  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate, chatGptStore, chatGptOAuth };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {
@@ -91,6 +96,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   registerUsageRoute(app, gateway);
   registerDashboardRoute(app, gateway);
   registerSetupRoute(app, gateway);
+  registerChatGptAuthRoutes(app, gateway);
   providerRegistry.registerRoutes(app, gateway);
 
   // Every route gates on credentialMonitor.status — without this, it starts
