@@ -1,10 +1,10 @@
 # API Reference
 
-Full machine-readable spec: `openapi.yaml`. This is the human-readable summary. The foundation release registers five provider IDs, but only Claude has inference routes. Future adapters receive their own API contracts.
+Full machine-readable spec: `openapi.yaml`. This is the human-readable summary. Claude and ChatGPT have separate inference routes; Gemini, Kimi, and Qwen retain status cards.
 
 ## Auth
 
-Every route below except `GET /health` and the dashboard shell requires the gateway API key, via **either**:
+Every route below except `GET /health`, the dashboard shell, and the one-time OAuth callback requires the gateway API key, via **either**:
 
 ```http
 Authorization: Bearer <GATEWAY_API_KEY>
@@ -41,9 +41,15 @@ Error shape (top-level wrapper required):
 
 Alias: `GET /claude/v1/models`. Both list the Claude model alias allow-list (`src/config/models.ts`) — not an open passthrough. Models remain available when inference is paused.
 
+## ChatGPT sign-in and inference
+
+`POST /v1/providers/chatgpt/connect` accepts `{}` for a new registration or `{ "registrationId": "..." }` for a saved one and returns only `{ "authorizationUrl": "..." }`. Open that URL in the local browser. OpenAI returns to `GET /auth/callback`; the gateway consumes the one-time state and redirects to the dashboard with a nonsecret result flag. `POST /v1/providers/chatgpt/disconnect` attempts remote refresh-token revocation, then clears local tokens and returns `{ "remoteRevocationConfirmed": true|false }`.
+
+`GET /chatgpt/v1/models` calls the selected account's OpenAI catalog and returns `{ "models": [{ "slug": "...", "display_name": "..." }] }` for visible models only. `POST /chatgpt/v1/responses` returns SSE. Its exact accepted JSON shape is `{ "model": "slug", "input": [{ "role": "user|assistant|developer", "content": "text" }], "instructions": "optional text", "store": false, "stream": true }`. `input` must be nonempty. Extra fields, system roles, tools, images, and `previous_response_id` return 400. Send full context on each request. A successful stream must contain `response.completed`; failed, incomplete, or interrupted streams are audited as errors. These routes never fall back to Claude.
+
 ## `GET /v1/providers`
 
-Returns five ordered provider cards: `claude`, `chatgpt`, `gemini`, `kimi`, `qwen`. Each has a `client` detection state, `connection` state, `api.ready` flag and supported `api.capabilities`, plus `setupAction`. Capabilities are empty until a connection is ready. In this foundation release only Claude has implemented routes; the others return `coming_soon` and no copyable capability. If both Claude compatibility routes are disabled by configuration, Claude returns `enable_route`. This route never returns the gateway key or provider credentials.
+Returns five ordered provider cards: `claude`, `chatgpt`, `gemini`, `kimi`, `qwen`. Each has a `client` detection state, `connection` state, `api.ready` flag and supported `api.capabilities`, plus `setupAction`. Capabilities are empty until a connection is ready. ChatGPT also lists safe registration IDs and labels for account selection. Gemini, Kimi, and Qwen return `coming_soon`. If both Claude compatibility routes are disabled by configuration, Claude returns `enable_route`. This route never returns the gateway key or provider tokens.
 
 ## `GET /v1/control/serving`, `POST /v1/control/serving`
 

@@ -11,7 +11,7 @@ export type ProviderStatus = {
   id: ProviderId;
   displayName: string;
   client: { state: 'detected' | 'not_detected' | 'not_required'; method: string };
-  connection: { state: 'connected' | 'disconnected' | 'not_configured'; detail?: string };
+  connection: { state: 'connected' | 'disconnected' | 'not_configured'; detail?: string; registrations?: Array<{ registrationId: string; label: string; selected: boolean }> };
   api: { ready: boolean; capabilities: ProviderCapability[] };
   setupAction: 'none' | 'sign_in' | 'enter_key' | 'install_cli' | 'reconnect' | 'enable_route' | 'coming_soon';
 };

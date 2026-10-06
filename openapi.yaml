@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PGSAO API
-  description: Personal AI gateway foundation. Claude inference is implemented; other provider cards have status only.
+  description: Personal AI gateway with separate Claude and ChatGPT routes. Gemini, Kimi, and Qwen have status cards.
   version: 0.0.2
   license:
     name: MIT
@@ -78,6 +78,15 @@ paths:
                           properties:
                             state: { type: string, enum: [connected, disconnected, not_configured] }
                             detail: { type: string }
+                            registrations:
+                              type: array
+                              description: Safe ChatGPT account labels and registration IDs; no tokens.
+                              items:
+                                type: object
+                                properties:
+                                  registrationId: { type: string }
+                                  label: { type: string }
+                                  selected: { type: boolean }
                         api:
                           type: object
                           properties:
@@ -92,6 +101,118 @@ paths:
                                   legacy: { type: boolean }
                         setupAction: { type: string, enum: [none, sign_in, enter_key, install_cli, reconnect, enable_route, coming_soon] }
         '401': { description: Missing or invalid gateway key }
+  /v1/providers/chatgpt/connect:
+    post:
+      summary: Start local Continue with ChatGPT authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                registrationId: { type: string, description: Existing registration to reconnect; omit for a new account }
+      responses:
+        '200':
+          description: Authorization URL to open in the local browser; no tokens
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizationUrl]
+                properties:
+                  authorizationUrl: { type: string, format: uri }
+        '400': { description: Invalid registration selection or unable to start }
+        '401': { description: Missing or invalid gateway key }
+  /auth/callback:
+    get:
+      summary: One-time local OpenAI OAuth callback
+      security: []
+      description: Validates state and ID token, then redirects without code or token in the URL.
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: code, in: query, required: false, schema: { type: string } }
+        - { name: client_id, in: query, required: false, schema: { type: string } }
+        - { name: error, in: query, required: false, schema: { type: string } }
+      responses:
+        '303': { description: Redirect to dashboard with nonsecret result flag }
+  /v1/providers/chatgpt/disconnect:
+    post:
+      summary: Revoke selected ChatGPT refresh grant and clear local tokens
+      responses:
+        '200':
+          description: Local sign-out result with remote revocation status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [remoteRevocationConfirmed]
+                properties:
+                  remoteRevocationConfirmed: { type: boolean }
+        '401': { description: Missing or invalid gateway key }
+  /chatgpt/v1/models:
+    get:
+      summary: Selected ChatGPT account's visible model catalog
+      responses:
+        '200':
+          description: Visible models in OpenAI order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [models]
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: object
+                      required: [slug, display_name]
+                      properties:
+                        slug: { type: string }
+                        display_name: { type: string }
+        '401': { description: Missing or invalid gateway key }
+        '429': { description: ChatGPT usage limit }
+        '502': { description: Upstream error }
+        '503': { description: ChatGPT not connected }
+  /chatgpt/v1/responses:
+    post:
+      summary: ChatGPT plan Responses API SSE, text-only subset
+      description: Full input context is required on every call. Unsupported preview fields are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [model, input, store, stream]
+              properties:
+                model: { type: string, minLength: 1 }
+                input:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [role, content]
+                    properties:
+                      role: { type: string, enum: [user, assistant, developer] }
+                      content: { type: string, minLength: 1 }
+                instructions: { type: string }
+                store: { type: boolean, enum: [false] }
+                stream: { type: boolean, enum: [true] }
+      responses:
+        '200':
+          description: SSE events; success requires response.completed
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '400': { description: Unsupported or invalid request }
+        '401': { description: Missing or invalid gateway key }
+        '429': { description: Gateway or ChatGPT limit }
+        '502': { description: Upstream or stream error }
+        '503': { description: ChatGPT disconnected or serving paused }
   /v1/control/serving:
     get:
       summary: Read process-local inference admission state

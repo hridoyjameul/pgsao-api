@@ -2,7 +2,7 @@
 
 A plain-English guide for **non-developers**. No terminal commands to memorize, no config files to edit by hand.
 
-**What this is:** PGSAO API gives your own AI accounts a local gateway API key you can paste into other apps. Claude works in this foundation release. ChatGPT, Gemini, Kimi, and Qwen have dashboard cards and will get separate API adapters in later releases.
+**What this is:** PGSAO API gives your own AI accounts one local gateway API key you can paste into other apps. Claude and ChatGPT have separate routes. Gemini, Kimi, and Qwen have dashboard cards for future adapters.
 
 **GitHub repo:** https://github.com/hridoyjameul/pgsao-api
 
@@ -57,7 +57,7 @@ Open **http://localhost:8787/dashboard**. You'll see three setup steps at the to
 2. **Claude account** — shows "Connected ✓" once the app has confirmed it can use your Claude login. If it says "Not connected," make sure you're logged into Claude Code on this computer, then reload the page.
 3. **Your API key** — already filled in for you. Click **show** to reveal it, and **copy** to copy it to your clipboard.
 
-Below that, the **AI providers** cards show three separate facts for each service: whether a known client was detected, whether the account is connected, and whether a gateway API route is ready. A detected client alone does not mean the route is ready. For now, only a connected Claude card shows copyable Base URLs. The other four cards say **Coming soon**.
+Below that, the **AI providers** cards show three separate facts for each service: whether a known client was detected, whether the account is connected, and whether a gateway API route is ready. A detected client alone does not mean the route is ready. Claude is ready with its login. On the ChatGPT card, click **Continue with ChatGPT** and approve access in your browser; after the callback, its Responses Base URL and model choices appear. You can reconnect a saved account or add another. Gemini, Kimi, and Qwen say **Coming soon**.
 
 The **Gateway inference** Start/Stop buttons pause new AI requests while leaving this dashboard available. A request already in progress can finish. Restarting the app turns inference back on.
 
@@ -80,7 +80,7 @@ Most tools that let you "bring your own API key" ask for exactly two things:
 | Base URL / Endpoint (Anthropic/Claude-style, Claude-specific) | `http://localhost:8787/claude` |
 | API key | The key shown on your dashboard |
 
-Older clients using `http://localhost:8787/v1` or `http://localhost:8787` keep working. All Claude URLs use the same gateway key. The ChatGPT, Gemini, Kimi, and Qwen cards do not provide working URLs yet.
+Older clients using `http://localhost:8787/v1` or `http://localhost:8787` keep working. All ready routes use the same gateway key. ChatGPT's separate Base URL is `http://localhost:8787/chatgpt/v1`, but its current route is **Responses API streaming only**. It does not work as an OpenAI Chat Completions replacement in clients that only call `/chat/completions`. Its model list is `GET /chatgpt/v1/models`. Gemini, Kimi, and Qwen have no working URLs yet.
 
 For **n8n** specifically: use its built-in **"OpenAI Chat Model"** node, and enter the Base URL and key above as its credential. See `docs/n8n.md` in this repo for a more detailed walkthrough if needed.
 
@@ -119,7 +119,7 @@ PGSAO API doesn't install anything outside its own project folder — no Windows
 1. Close the app (close both windows if they're still open).
 2. Delete the project folder.
 
-That's it. Your API key, settings, and any local usage data live only inside that folder (in `.env` and the `data/` subfolder), so deleting it removes everything. If you're running it via Docker instead, also run `docker stop pgsao-api && docker rm pgsao-api` first to remove the container, and `docker rmi pgsao-api` if you want the image gone too.
+Your gateway key, settings, and usage data live in the project folder (`.env` and `data/`). ChatGPT tokens live separately in your operating system's private app-data folder, or in a Docker named volume. Disconnect ChatGPT from its dashboard card to revoke and clear its tokens before removing the app. If you're running it via Docker, also run `docker stop pgsao-api && docker rm pgsao-api` to remove the container, and `docker rmi pgsao-api` if you want the image gone too.
 
 ---
 

@@ -15,10 +15,11 @@ export class ChatGptConnection {
   async status(): Promise<ProviderStatus['connection']> {
     const state = await this.store.load();
     const account = state.accounts.find((item) => item.registrationId === state.selectedRegistrationId);
-    if (!account) return { state: 'not_configured' };
+    const registrations = state.accounts.map((item) => ({ registrationId: item.registrationId, label: item.email || `ChatGPT account ${item.registrationId.slice(0, 8)}`, selected: item.registrationId === state.selectedRegistrationId }));
+    if (!account) return { state: 'not_configured', registrations };
     return account.accessToken && account.refreshToken
-      ? { state: 'connected', detail: account.email || 'ChatGPT account connected' }
-      : { state: 'disconnected', detail: account.email || 'Reconnect ChatGPT' };
+      ? { state: 'connected', detail: account.email || 'ChatGPT account connected', registrations }
+      : { state: 'disconnected', detail: account.email || 'Reconnect ChatGPT', registrations };
   }
 
   async getAccessToken(): Promise<string> {

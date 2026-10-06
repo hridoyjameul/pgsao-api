@@ -30,7 +30,9 @@
 
 ## Multi-provider foundation
 
-`providers/registry.ts` owns the fixed five-card order, capabilities, statuses, and route registration. `providers/builtin-adapters.ts` registers Claude's existing handlers at both legacy and `/claude` prefixes. ChatGPT, Gemini, Kimi, and Qwen are pending adapters with detection/status metadata and no inference handlers, so the dashboard does not advertise an unusable URL. `providers/detect-client.ts` checks PATH for CLI shims without launching them or reading credentials. Detection, account connection, and API readiness are distinct facts.
+`providers/registry.ts` owns the fixed five-card order, capabilities, statuses, and route registration. `providers/builtin-adapters.ts` registers Claude's existing handlers at both legacy and `/claude` prefixes, and ChatGPT's separate model and Responses handlers at `/chatgpt/v1`. Gemini, Kimi, and Qwen remain pending adapters. `providers/detect-client.ts` checks PATH for CLI shims without launching them or reading credentials. Detection, account connection, and API readiness are distinct facts.
+
+The ChatGPT adapter uses a protected atomic credential file (`chatgpt/credential-store.ts`), one-time PKCE/OIDC sign-in with signed ID-token verification (`chatgpt/oauth.ts`), serialized refresh and revocation (`chatgpt/connection.ts`), fixed OpenAI hosts (`chatgpt/upstream.ts`), and strict text-only SSE validation (`chatgpt/responses.ts`). Its concurrency queue is separate from Claude's. Tokens never enter provider status or dashboard storage. The route requires `response.completed` before auditing success. ChatGPT does not use Claude's session map or inference provider.
 
 The local gateway key authenticates implemented routes. It is not an upstream provider credential. `control/serving-gate.ts` rejects new inference after auth when paused, while an existing stream continues and status/dashboard/model routes stay available. The pause state is process-local. `sessions/session-manager.ts` records a provider ID for each audit row; old SQLite rows get the default `claude`. `/v1/usage` retains `byRoute` and adds `byProvider`.
 

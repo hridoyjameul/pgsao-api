@@ -44,7 +44,8 @@ describe('protected ChatGPT account store', () => {
       expect(response.statusCode).toBe(200);
       expect(response.body).not.toContain('sensitive-');
       expect(response.json().providers[1].connection.state).toBe('connected');
-      expect(response.json().providers[1].api.ready).toBe(false);
+      expect(response.json().providers[1].api.ready).toBe(true);
+      expect(response.json().providers[1].api.capabilities).toEqual([{ shape: 'openai_responses', basePath: '/chatgpt/v1' }]);
     } finally { await ctx.close(); }
   });
 

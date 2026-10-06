@@ -297,6 +297,46 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
         providerLine(card, 'Client detected', provider.client.state, provider.client.method);
         providerLine(card, 'Account connected', provider.connection.state, provider.connection.detail);
         providerLine(card, 'Gateway API ready', provider.api.ready ? 'yes' : 'no');
+        if (provider.id === 'chatgpt') {
+          var accountPicker = document.createElement('select');
+          var newAccount = document.createElement('option');
+          newAccount.value = ''; newAccount.textContent = 'Add a ChatGPT account';
+          accountPicker.appendChild(newAccount);
+          (provider.connection.registrations || []).forEach(function (registration) {
+            var option = document.createElement('option');
+            option.value = registration.registrationId;
+            option.textContent = registration.label + (registration.selected ? ' (active)' : '');
+            accountPicker.appendChild(option);
+            if (registration.selected) accountPicker.value = registration.registrationId;
+          });
+          var connectButton = document.createElement('button');
+          connectButton.textContent = 'Continue with ChatGPT';
+          connectButton.onclick = function () {
+            connectButton.disabled = true;
+            fetch('/v1/providers/chatgpt/connect', {
+              method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+              body: JSON.stringify(accountPicker.value ? { registrationId: accountPicker.value } : {}),
+            }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+              .then(function (result) { window.location.assign(result.authorizationUrl); })
+              .catch(function () { connectButton.disabled = false; connectButton.textContent = 'Sign-in failed; retry'; });
+          };
+          var connectRow = document.createElement('div');
+          connectRow.className = 'row';
+          connectRow.appendChild(accountPicker); connectRow.appendChild(connectButton);
+          card.appendChild(connectRow);
+          if (provider.connection.state === 'connected') {
+            var disconnectButton = document.createElement('button');
+            disconnectButton.textContent = 'Disconnect ChatGPT';
+            disconnectButton.onclick = function () {
+              disconnectButton.disabled = true;
+              fetch('/v1/providers/chatgpt/disconnect', { method: 'POST', headers: authHeaders() })
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function () { loadProviders(); })
+                .catch(function () { disconnectButton.disabled = false; });
+            };
+            card.appendChild(disconnectButton);
+          }
+        }
         if (provider.api.ready) {
           if (provider.id === 'claude') claudeReady = true;
           var details = document.createElement('div');
@@ -322,6 +362,13 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
               var modelLine = document.createElement('div');
               modelLine.className = 'muted';
               modelLine.textContent = 'Models: ' + (models.data || []).map(function (m) { return m.id; }).join(', ');
+              details.appendChild(modelLine);
+            }).catch(function () {});
+          } else if (provider.id === 'chatgpt') {
+            fetch('/chatgpt/v1/models', { headers: authHeaders() }).then(function (r) { if (!r.ok) throw new Error('Models unavailable'); return r.json(); }).then(function (catalog) {
+              var modelLine = document.createElement('div');
+              modelLine.className = 'muted';
+              modelLine.textContent = 'Models: ' + (catalog.models || []).map(function (m) { return m.display_name + ' (' + m.slug + ')'; }).join(', ');
               details.appendChild(modelLine);
             }).catch(function () {});
           }
