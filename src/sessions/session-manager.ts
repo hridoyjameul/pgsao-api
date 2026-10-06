@@ -20,7 +20,7 @@ export interface UsageStats {
 export interface RequestLogEntry {
   id: string;
   sessionId?: string;
-  route: 'openai' | 'anthropic';
+  route: 'openai' | 'anthropic' | 'responses';
   provider: ProviderId;
   status: 'ok' | 'error';
   startedAt: number;

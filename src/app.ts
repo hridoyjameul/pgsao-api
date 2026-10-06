@@ -37,6 +37,7 @@ export interface GatewayDeps {
   chatGptOAuth: ChatGptOAuth;
   chatGptConnection: ChatGptConnection;
   chatGptUpstream: ChatGptUpstream;
+  chatGptQueue: ConcurrencyQueue;
 }
 
 export interface BuildAppOptions {
@@ -68,9 +69,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const chatGptOAuth = new ChatGptOAuth(chatGptStore, opts.chatGptFetch);
   const chatGptConnection = new ChatGptConnection(chatGptStore, opts.chatGptFetch);
   const chatGptUpstream = new ChatGptUpstream(chatGptConnection, opts.chatGptFetch);
+  const chatGptQueue = new ConcurrencyQueue({ maxConcurrent: config.MAX_CONCURRENT_REQUESTS, maxQueueSize: config.QUEUE_MAX_SIZE, requestTimeoutMs: config.REQUEST_TIMEOUT_MS });
   for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptConnection)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection, chatGptUpstream };
+  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection, chatGptUpstream, chatGptQueue };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {
