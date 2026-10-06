@@ -344,7 +344,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     var body = $('apiAccessBody');
     if (!p.api.ready) {
       var why = p.setupAction === 'coming_soon' ? 'Coming soon. ' + p.displayName + ' is not available in this version yet.'
-        : p.id === 'chatgpt' ? 'Connect your ChatGPT account to get a ChatGPT Base URL and API key.'
+        : p.id === 'chatgpt' ? 'Connect a paid ChatGPT subscription account (free accounts do not work) to get a ChatGPT Base URL and API key.'
         : p.setupAction === 'enable_route' ? 'Enable a Claude compatibility route in .env, then restart.'
         : 'Log in to ' + p.displayName + ' on this computer, then reload this page.';
       body.innerHTML = '<div class="muted">' + esc(why) + '</div>';
@@ -406,7 +406,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     }
     if (p.id === 'chatgpt') {
       var regs = (p.connection.registrations || []);
-      html += '<div class="label">ChatGPT account</div><div class="row"><select id="accountPicker"><option value="">Add a ChatGPT account</option>' +
+      html += '<div class="label">ChatGPT account</div><div class="notice"><strong>Subscription account only.</strong> Free ChatGPT accounts do not work with this API.</div><div class="row"><select id="accountPicker"><option value="">Add a ChatGPT account</option>' +
         regs.map(function (r) { return '<option value="' + esc(r.registrationId) + '"' + (r.selected ? ' selected' : '') + '>' + esc(r.label) + (r.selected ? ' (active)' : '') + '</option>'; }).join('') +
         '</select><button id="continueChatgpt" class="primary">Continue with ChatGPT</button>' +
         (p.connection.state === 'connected' ? '<button id="disconnectChatgpt">Disconnect ChatGPT</button>' : '') + '</div>';

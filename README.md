@@ -33,7 +33,7 @@ On Windows, double-clicking `start.bat` does the `npm install` + `npm run dev` +
 
 There's no manual config step: on first run, the app creates its own `.env` (from `.env.example`) and generates its own `GATEWAY_API_KEY` automatically if one isn't already set. (You can still set either by hand first if you want to pin specific values — the auto-setup only fills in what's missing.)
 
-Then open **http://localhost:8787/dashboard** — a web control panel for provider status, usage, Start/Stop, session management, and ready-to-copy URLs. It fetches your auto-generated `GATEWAY_API_KEY` on first load (from this machine only) and keeps that gateway key in the browser's localStorage. Provider credentials are never stored there. Select **Continue with ChatGPT** on its card to authorize that provider separately.
+Then open **http://localhost:8787/dashboard** — a web control panel for provider status, usage, Start/Stop, session management, and ready-to-copy URLs. It fetches your auto-generated `GATEWAY_API_KEY` on first load (from this machine only) and keeps that gateway key in the browser's localStorage. Provider credentials are never stored there. Select **Continue with ChatGPT** on its card to authorize that provider separately. ChatGPT requires a paid subscription account; free ChatGPT accounts do not work.
 
 ### Test both routes
 
