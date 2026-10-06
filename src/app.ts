@@ -18,6 +18,7 @@ import { createBuiltinAdapters } from './providers/builtin-adapters.js';
 import { registerProvidersRoute } from './routes/providers.js';
 import { ServingGate } from './control/serving-gate.js';
 import { registerControlRoute } from './routes/control.js';
+import { ChatGptCredentialStore } from './chatgpt/credential-store.js';
 
 export interface GatewayDeps {
   config: Config;
@@ -28,6 +29,7 @@ export interface GatewayDeps {
   requireApiKey: ReturnType<typeof createApiKeyPreHandler>;
   providerRegistry: ProviderRegistry;
   servingGate: ServingGate;
+  chatGptStore: ChatGptCredentialStore;
 }
 
 export interface BuildAppOptions {
@@ -36,6 +38,7 @@ export interface BuildAppOptions {
   claudeProvider?: ClaudeProvider;
   /** Override for tests, e.g. ':memory:'. Defaults to config.DATABASE_URL. */
   dbPath?: string;
+  chatGptStore?: ChatGptCredentialStore;
 }
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -53,9 +56,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const requireApiKey = createApiKeyPreHandler(config.GATEWAY_API_KEY);
   const providerRegistry = new ProviderRegistry();
   const servingGate = new ServingGate();
-  for (const adapter of createBuiltinAdapters(credentialMonitor, config)) providerRegistry.register(adapter);
+  const chatGptStore = opts.chatGptStore ?? new ChatGptCredentialStore(config.CHATGPT_CREDENTIALS_PATH);
+  for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptStore)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate };
+  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate, chatGptStore };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {
