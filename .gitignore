@@ -5,3 +5,4 @@ data/*.db-journal
 .env
 *.log
 .DS_Store
+.worktrees/
