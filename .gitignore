@@ -2,6 +2,7 @@ node_modules/
 dist/
 data/*.db
 data/*.db-journal
+data/chatgpt.json
 .env
 *.log
 .DS_Store

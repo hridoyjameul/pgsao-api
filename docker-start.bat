@@ -51,8 +51,10 @@ docker run -d ^
   --restart unless-stopped ^
   --env-file "%~dp0.env" ^
   -e HOST=0.0.0.0 ^
+  -e CHATGPT_CREDENTIALS_PATH=/app/chatgpt/chatgpt.json ^
   -p 127.0.0.1:8787:8787 ^
   -v "%~dp0data:/app/data" ^
+  -v pgsao-chatgpt-credentials:/app/chatgpt ^
   -v "%CLAUDE_DIR%:/root/.claude:ro" ^
   pgsao-api
 if errorlevel 1 (

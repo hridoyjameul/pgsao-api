@@ -5,6 +5,7 @@
                        │                           │
                        ▼                           ▼
               /v1/chat/completions           /v1/messages
+              /claude/v1/chat/completions    /claude/v1/messages
               (routes/openai-compat.ts)  (routes/anthropic-compat.ts)
                        │                           │
                        ▼                           ▼
@@ -15,7 +16,7 @@
                    InternalClaudeRequest / InternalClaudeResponse
                               (providers/types.ts)
                                      │
-              auth/api-key.ts · concurrency/queue.ts ·
+              auth/api-key.ts · control/serving-gate.ts · concurrency/queue.ts ·
               sessions/session-manager.ts · auth/credential-monitor.ts
                                      │
                                      ▼
@@ -26,6 +27,16 @@
                                      ▼
                                   Claude
 ```
+
+## Multi-provider foundation
+
+`providers/registry.ts` owns the fixed five-card order, capabilities, statuses, and route registration. `providers/builtin-adapters.ts` registers Claude's existing handlers at both legacy and `/claude` prefixes, and ChatGPT's separate model and Responses handlers at `/chatgpt/v1`. Gemini, Kimi, and Qwen remain pending adapters. `providers/detect-client.ts` checks PATH for CLI shims without launching them or reading credentials. Detection, account connection, and API readiness are distinct facts.
+
+The ChatGPT adapter uses a protected atomic credential file (`chatgpt/credential-store.ts`), one-time PKCE/OIDC sign-in with signed ID-token verification (`chatgpt/oauth.ts`), serialized refresh and revocation (`chatgpt/connection.ts`), fixed OpenAI hosts (`chatgpt/upstream.ts`), and strict text-only SSE validation (`chatgpt/responses.ts`). Its concurrency queue is separate from Claude's. Tokens never enter provider status or dashboard storage. The route requires `response.completed` before auditing success. ChatGPT does not use Claude's session map or inference provider.
+
+The local gateway key authenticates implemented routes. It is not an upstream provider credential. `control/serving-gate.ts` rejects new inference after auth when paused, while an existing stream continues and status/dashboard/model routes stay available. The pause state is process-local. `sessions/session-manager.ts` records a provider ID for each audit row; old SQLite rows get the default `claude`. `/v1/usage` retains `byRoute` and adds `byProvider`.
+
+The next adapters own their provider authentication and inference separately. They should register only documented API shapes under their own prefixes and use the shared key, serving gate, and audit record. No cross-provider fallback is performed.
 
 ## Why Anthropic-first
 
@@ -50,7 +61,7 @@ The caller executes the tool externally and reports the result back on its **nex
 
 ## Error taxonomy
 
-Six categories throughout (`invalid_request_error`, `rate_limit_error`, `usage_limit_error`, `credential_error`, `provider_error`, plus a 500 fallback), plus a 401 `authentication_error` for the gateway's own API key (distinct from `credential_error`, which is the Claude *account's* auth going stale). `providers/claude.ts` maps the SDK's own `SDKAssistantMessageError` enum and `SDKRateLimitEvent` into these — see `spikes/FINDINGS.md` for the concrete mapping table. Each route's translator renders the SAME `ApiError` into its own native shape: Anthropic requires a top-level `"type":"error"` wrapper, OpenAI does not.
+The API error categories include `invalid_request_error`, `rate_limit_error`, `usage_limit_error`, `credential_error`, `provider_error`, `authentication_error` for the gateway key, and `service_paused` for the serving control, plus a 500 fallback. `providers/claude.ts` maps the SDK's own `SDKAssistantMessageError` enum and `SDKRateLimitEvent` into these — see `spikes/FINDINGS.md` for the concrete mapping table. Each route's translator renders the same `ApiError` into its own native shape: Anthropic requires a top-level `"type":"error"` wrapper, OpenAI does not.
 
 ## CLI and startup (Phase 4)
 

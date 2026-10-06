@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: PGSAO API
-  description: Personal Gateway for Anthropic/OpenAI API
-  version: 0.0.1
+  description: Personal AI gateway with separate Claude and ChatGPT routes. Gemini, Kimi, and Qwen have status cards.
+  version: 0.0.2
   license:
     name: MIT
 servers:
@@ -11,6 +11,12 @@ security:
   - bearerAuth: []
   - apiKeyAuth: []
 paths:
+  /dashboard:
+    get:
+      summary: Local provider control panel
+      security: []
+      responses:
+        '200': { description: Self-contained HTML dashboard }
   /health:
     get:
       summary: Health check (unauthenticated)
@@ -40,6 +46,202 @@ paths:
       responses:
         '200':
           description: OK
+  /claude/v1/models:
+    $ref: '#/paths/~1v1~1models'
+  /v1/providers:
+    get:
+      summary: List provider detection, connection, and API readiness states
+      responses:
+        '200':
+          description: Five provider statuses; no gateway or vendor credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers]
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, displayName, client, connection, api, setupAction]
+                      properties:
+                        id: { type: string, enum: [claude, chatgpt, gemini, kimi, qwen] }
+                        displayName: { type: string }
+                        client:
+                          type: object
+                          properties:
+                            state: { type: string, enum: [detected, not_detected, not_required] }
+                            method: { type: string }
+                        connection:
+                          type: object
+                          properties:
+                            state: { type: string, enum: [connected, disconnected, not_configured] }
+                            detail: { type: string }
+                            registrations:
+                              type: array
+                              description: Safe ChatGPT account labels and registration IDs; no tokens.
+                              items:
+                                type: object
+                                properties:
+                                  registrationId: { type: string }
+                                  label: { type: string }
+                                  selected: { type: boolean }
+                        api:
+                          type: object
+                          properties:
+                            ready: { type: boolean }
+                            capabilities:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  shape: { type: string, enum: [openai_chat, anthropic_messages, openai_responses] }
+                                  basePath: { type: string }
+                                  legacy: { type: boolean }
+                        setupAction: { type: string, enum: [none, sign_in, enter_key, install_cli, reconnect, enable_route, coming_soon] }
+        '401': { description: Missing or invalid gateway key }
+  /v1/providers/chatgpt/connect:
+    post:
+      summary: Start local Continue with ChatGPT authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                registrationId: { type: string, description: Existing registration to reconnect; omit for a new account }
+      responses:
+        '200':
+          description: Authorization URL to open in the local browser; no tokens
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizationUrl]
+                properties:
+                  authorizationUrl: { type: string, format: uri }
+        '400': { description: Invalid registration selection or unable to start }
+        '401': { description: Missing or invalid gateway key }
+  /auth/callback:
+    get:
+      summary: One-time local OpenAI OAuth callback
+      security: []
+      description: Validates state and ID token, then redirects without code or token in the URL.
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: code, in: query, required: false, schema: { type: string } }
+        - { name: client_id, in: query, required: false, schema: { type: string } }
+        - { name: error, in: query, required: false, schema: { type: string } }
+      responses:
+        '303': { description: Redirect to dashboard with nonsecret result flag }
+  /v1/providers/chatgpt/disconnect:
+    post:
+      summary: Revoke selected ChatGPT refresh grant and clear local tokens
+      responses:
+        '200':
+          description: Local sign-out result with remote revocation status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [remoteRevocationConfirmed]
+                properties:
+                  remoteRevocationConfirmed: { type: boolean }
+        '401': { description: Missing or invalid gateway key }
+  /chatgpt/v1/models:
+    get:
+      summary: Selected ChatGPT account's visible model catalog
+      responses:
+        '200':
+          description: Visible models in OpenAI order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [models]
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: object
+                      required: [slug, display_name]
+                      properties:
+                        slug: { type: string }
+                        display_name: { type: string }
+        '401': { description: Missing or invalid gateway key }
+        '429': { description: ChatGPT usage limit }
+        '502': { description: Upstream error }
+        '503': { description: ChatGPT not connected }
+  /chatgpt/v1/responses:
+    post:
+      summary: ChatGPT plan Responses API SSE, text-only subset
+      description: Full input context is required on every call. Unsupported preview fields are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [model, input, store, stream]
+              properties:
+                model: { type: string, minLength: 1 }
+                input:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [role, content]
+                    properties:
+                      role: { type: string, enum: [user, assistant, developer] }
+                      content: { type: string, minLength: 1 }
+                instructions: { type: string }
+                store: { type: boolean, enum: [false] }
+                stream: { type: boolean, enum: [true] }
+      responses:
+        '200':
+          description: SSE events; success requires response.completed
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '400': { description: Unsupported or invalid request }
+        '401': { description: Missing or invalid gateway key }
+        '429': { description: Gateway or ChatGPT limit }
+        '502': { description: Upstream or stream error }
+        '503': { description: ChatGPT disconnected or serving paused }
+  /v1/control/serving:
+    get:
+      summary: Read process-local inference admission state
+      responses:
+        '200':
+          description: Current state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled]
+                properties:
+                  enabled: { type: boolean }
+    post:
+      summary: Pause or resume new inference requests
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              additionalProperties: false
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200': { description: New state, as an enabled boolean }
+        '400': { description: Invalid body }
+        '401': { description: Missing or invalid gateway key }
   /v1/chat/completions:
     post:
       summary: OpenAI Chat Completions-compatible
@@ -71,7 +273,9 @@ paths:
         '401': { description: authentication_error }
         '429': { description: rate_limit_error or usage_limit_error }
         '502': { description: provider_error }
-        '503': { description: credential_error }
+        '503': { description: credential_error or service_paused }
+  /claude/v1/chat/completions:
+    $ref: '#/paths/~1v1~1chat~1completions'
   /v1/messages:
     post:
       summary: Anthropic Messages-compatible
@@ -103,10 +307,12 @@ paths:
         '401': { description: authentication_error }
         '429': { description: rate_limit_error or usage_limit_error }
         '502': { description: provider_error }
-        '503': { description: credential_error }
+        '503': { description: credential_error or service_paused }
+  /claude/v1/messages:
+    $ref: '#/paths/~1v1~1messages'
   /v1/usage:
     get:
-      summary: Basic usage dashboard data, split by route (Phase 4)
+      summary: Request audit counts split by route and provider
       responses:
         '200':
           description: OK
@@ -117,6 +323,15 @@ paths:
                 properties:
                   total: { type: integer }
                   byRoute:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        total: { type: integer }
+                        ok: { type: integer }
+                        error: { type: integer }
+                        avgQueueWaitMs: { type: integer, nullable: true }
+                  byProvider:
                     type: object
                     additionalProperties:
                       type: object

@@ -1,10 +1,10 @@
 # API Reference
 
-Full machine-readable spec: `openapi.yaml`. This is the human-readable summary.
+Full machine-readable spec: `openapi.yaml`. This is the human-readable summary. Claude and ChatGPT have separate inference routes; Gemini, Kimi, and Qwen retain status cards.
 
 ## Auth
 
-Every route below except `GET /health` requires the gateway API key, via **either**:
+Every route below except `GET /health`, the dashboard shell, and the one-time OAuth callback requires the gateway API key, via **either**:
 
 ```http
 Authorization: Bearer <GATEWAY_API_KEY>
@@ -17,6 +17,8 @@ Both headers work on both compat routes regardless of which one "naturally" goes
 
 ## `POST /v1/chat/completions` — OpenAI-compatible
 
+Alias: `POST /claude/v1/chat/completions`. The OpenAI SDK base URLs are `/v1` (legacy) and `/claude/v1` (Claude-specific). Both use the same handler and session store. Both are omitted when `ENABLE_OPENAI_COMPAT_ROUTE=false`.
+
 Required: `model`, `messages`. Optional: `max_tokens` (server picks a default if omitted), `temperature`, `stream`, `session_id` (extension), `tools`/`tool_choice` (Phase 3 — see below). Rejects the deprecated `functions`/`function_call` fields with `invalid_request_error`.
 
 Error shape (no top-level wrapper):
@@ -25,6 +27,8 @@ Error shape (no top-level wrapper):
 ```
 
 ## `POST /v1/messages` — Anthropic-compatible
+
+Alias: `POST /claude/v1/messages`. The Anthropic SDK base URLs are the server root (legacy) and `/claude` (Claude-specific). Both are omitted when `ENABLE_ANTHROPIC_COMPAT_ROUTE=false`.
 
 Required: `model`, `max_tokens`, `messages`. Optional: `system`, `stream`, `session_id` (extension), `tools`/`tool_choice` (Phase 3 — see below).
 
@@ -35,13 +39,27 @@ Error shape (top-level wrapper required):
 
 ## `GET /v1/models`
 
-Lists the model alias allow-list (`src/config/models.ts`) — not an open passthrough.
+Alias: `GET /claude/v1/models`. Both list the Claude model alias allow-list (`src/config/models.ts`) — not an open passthrough. Models remain available when inference is paused.
+
+## ChatGPT sign-in and inference
+
+`POST /v1/providers/chatgpt/connect` accepts `{}` for a new registration or `{ "registrationId": "..." }` for a saved one and returns only `{ "authorizationUrl": "..." }`. Open that URL in the local browser. OpenAI returns to `GET /auth/callback`; the gateway consumes the one-time state and redirects to the dashboard with a nonsecret result flag. `POST /v1/providers/chatgpt/disconnect` attempts remote refresh-token revocation, then clears local tokens and returns `{ "remoteRevocationConfirmed": true|false }`.
+
+`GET /chatgpt/v1/models` calls the selected account's OpenAI catalog and returns `{ "models": [{ "slug": "...", "display_name": "..." }] }` for visible models only. `POST /chatgpt/v1/responses` returns SSE. Its exact accepted JSON shape is `{ "model": "slug", "input": [{ "role": "user|assistant|developer", "content": "text" }], "instructions": "optional text", "store": false, "stream": true }`. `input` must be nonempty. Extra fields, system roles, tools, images, and `previous_response_id` return 400. Send full context on each request. A successful stream must contain `response.completed`; failed, incomplete, or interrupted streams are audited as errors. These routes never fall back to Claude.
+
+## `GET /v1/providers`
+
+Returns five ordered provider cards: `claude`, `chatgpt`, `gemini`, `kimi`, `qwen`. Each has a `client` detection state, `connection` state, `api.ready` flag and supported `api.capabilities`, plus `setupAction`. Capabilities are empty until a connection is ready. ChatGPT also lists safe registration IDs and labels for account selection. Gemini, Kimi, and Qwen return `coming_soon`. If both Claude compatibility routes are disabled by configuration, Claude returns `enable_route`. This route never returns the gateway key or provider tokens.
+
+## `GET /v1/control/serving`, `POST /v1/control/serving`
+
+GET returns `{ "enabled": true }` or `false`. POST accepts exactly `{ "enabled": <boolean> }` and returns the new state. Both require gateway key auth. When disabled, new inference requests return HTTP 503 with `service_paused` in the route's native error shape. Existing streams can finish. Status, models, usage, health, dashboard, and control stay available. The setting is process-local and defaults to enabled after restart.
 
 ## `GET /health` — unauthenticated
 
 ```json
 {
-  "status": "ok", "service": "pgsao-api", "version": "0.0.1",
+  "status": "ok", "service": "pgsao-api", "version": "0.0.2",
   "claude_auth_status": "ok",
   "active_requests": 0, "queued_requests": 0,
   "routes": { "openai_compatible": "enabled", "anthropic_compatible": "enabled" }
@@ -50,10 +68,10 @@ Lists the model alias allow-list (`src/config/models.ts`) — not an open passth
 
 ## `GET /v1/usage`
 
-Basic usage dashboard data (Phase 4), split by route — request counts (ok/error), average concurrency-queue wait, and error counts by category. Pulled from the `requests` audit log every call already writes to (`sessions/session-manager.ts`).
+Usage data split by route and provider — request counts (ok/error), average concurrency-queue wait, and error counts by category. Pulled from the `requests` audit log every call already writes to (`sessions/session-manager.ts`). Old rows migrate to provider `claude`.
 
 ```json
-{ "total": 42, "byRoute": { "openai": { "total": 30, "ok": 28, "error": 2, "avgQueueWaitMs": 4 }, "anthropic": { "total": 12, "ok": 12, "error": 0, "avgQueueWaitMs": 0 } }, "errorsByType": { "invalid_request_error": 2 } }
+{ "total": 42, "byRoute": { "openai": { "total": 30, "ok": 28, "error": 2, "avgQueueWaitMs": 4 }, "anthropic": { "total": 12, "ok": 12, "error": 0, "avgQueueWaitMs": 0 } }, "byProvider": { "claude": { "total": 42, "ok": 40, "error": 2, "avgQueueWaitMs": 3 } }, "errorsByType": { "invalid_request_error": 2 } }
 ```
 
 ## `POST /v1/sessions`, `GET /v1/sessions/:id`, `DELETE /v1/sessions/:id`
@@ -77,5 +95,6 @@ Standard, unmodified real-API behavior — the model proposes a call, execution 
 | `rate_limit_error` | 429 | gateway's own concurrency queue is full — retry shortly |
 | `usage_limit_error` | 429 | Claude account's subscription usage window is exhausted |
 | `credential_error` | 503 | the Claude account's own auth is stale/invalid |
+| `service_paused` | 503 | the dashboard has stopped admission of new inference requests |
 | `provider_error` | 502 | Claude itself errored (overloaded, server error, ...) |
 | (unexpected) | 500 | anything else |

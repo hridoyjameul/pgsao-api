@@ -26,7 +26,9 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   // over config.HOST — under Docker, config.HOST is "0.0.0.0" (the bind
   // address inside the container), which isn't something you can paste into
   // another app's Base URL field.
-  const baseUrl = `http://${requestHost ?? `${config.HOST}:${config.PORT}`}`;
+  const safeHost = requestHost && /^[a-zA-Z0-9.:[\]-]+$/.test(requestHost)
+    ? requestHost : `127.0.0.1:${config.PORT}`;
+  const baseUrl = `http://${safeHost}`;
 
   // Built server-side and handed to the page as JSON so no manual escaping
   // is needed across the TS -> HTML -> browser-JS layers. Placeholders only
@@ -119,12 +121,18 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   details[open] summary { margin-bottom: 12px; }
   .field-label { font-size: 12px; color: #888; margin-bottom: 4px; }
   .keybox { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; }
+  .provider-card { border: 1px solid light-dark(#ddd, #333); border-radius: 8px; padding: 14px; min-width: 0; }
+  .provider-card h3 { margin: 0 0 8px; font-size: 16px; }
+  .provider-state { margin: 4px 0; font-size: 13px; }
+  .provider-details { margin-top: 12px; border-top: 1px solid light-dark(#eee, #333); padding-top: 10px; }
+  .provider-details input { min-width: 0; }
 </style>
 </head>
 <body>
 
 <h1>PGSAO API</h1>
-<div class="sub">Your own Claude, available as an API &middot; running on this computer &middot; v${GATEWAY_VERSION}</div>
+<div class="sub">Your personal AI gateway &middot; running on this computer &middot; v${GATEWAY_VERSION}</div>
 
 <div class="card">
   <h2>Setup</h2>
@@ -161,27 +169,15 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
 </div>
 
 <div class="card">
-  <h2>Use it in another app</h2>
-  <div class="muted" style="margin-bottom:10px">Most apps ask for a <b>Base URL</b> (or "endpoint") and an <b>API key</b>. Use whichever Base URL matches what the other app expects — most modern tools use the OpenAI one.</div>
+  <h2>Gateway inference</h2>
+  <div class="row"><span id="servingStatus" class="muted">Checking&hellip;</span><button id="startServing">Start</button><button id="stopServing">Stop</button></div>
+</div>
 
-  <div class="field-label">Base URL (OpenAI-style apps)</div>
-  <div class="row" style="margin-bottom:10px">
-    <input type="text" id="baseUrlOpenai" class="keybox" readonly value="${baseUrl}/v1">
-    <button data-copy-target="baseUrlOpenai">copy</button>
-  </div>
-
-  <div class="field-label">Base URL (Anthropic/Claude-style apps)</div>
-  <div class="row" style="margin-bottom:10px">
-    <input type="text" id="baseUrlAnthropic" class="keybox" readonly value="${baseUrl}">
-    <button data-copy-target="baseUrlAnthropic">copy</button>
-  </div>
-
-  <div class="field-label">API key</div>
-  <div class="row">
-    <input type="password" id="apiKeyCopy" class="keybox" readonly>
-    <button id="toggleKeyCopy">show</button>
-    <button data-copy-target="apiKeyCopy">copy</button>
-  </div>
+<div class="card">
+  <h2>AI providers</h2>
+  <div class="muted" style="margin-bottom:12px">Each ready provider has its own Base URL. The gateway API key above works with every ready route.</div>
+  <div id="chatgptNotice" class="muted"></div>
+  <div id="providerCards" class="provider-grid"><div class="muted">Loading providers&hellip;</div></div>
 </div>
 
 <details>
@@ -203,7 +199,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     <pre id="sessionOut" class="muted">no session looked up yet</pre>
   </div>
 
-  <div class="card">
+  <div class="card" id="snippetCard" hidden>
     <h2>Code snippets</h2>
     <div class="tabs">
       <button class="tab-btn active" data-tab="curl-openai">curl (OpenAI shape)</button>
@@ -225,21 +221,15 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   function setKey(v) { try { localStorage.setItem(STORAGE_KEY, v); } catch (e) {} }
 
   var keyInput = document.getElementById('apiKey');
-  var keyCopyInput = document.getElementById('apiKeyCopy');
   var keyMsg = document.getElementById('keyMsg');
 
   function applyKey(v) {
     keyInput.value = v;
-    keyCopyInput.value = v;
   }
 
   document.getElementById('toggleKey').onclick = function () {
     keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
     this.textContent = keyInput.type === 'password' ? 'show' : 'hide';
-  };
-  document.getElementById('toggleKeyCopy').onclick = function () {
-    keyCopyInput.type = keyCopyInput.type === 'password' ? 'text' : 'password';
-    this.textContent = keyCopyInput.type === 'password' ? 'show' : 'hide';
   };
 
   function copyToClipboard(text, btn) {
@@ -283,6 +273,165 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     return k ? { 'Authorization': 'Bearer ' + k } : {};
   }
 
+  function providerLine(parent, label, state, detail) {
+    var line = document.createElement('div');
+    line.className = 'provider-state';
+    line.textContent = label + ': ' + state + (detail ? ' — ' + detail : '');
+    parent.appendChild(line);
+  }
+
+  function loadProviders() {
+    var cards = document.getElementById('providerCards');
+    if (!getKey()) { cards.textContent = 'Waiting for your API key…'; return; }
+    fetch('/v1/providers', { headers: authHeaders() }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (data) {
+      cards.replaceChildren();
+      var claudeReady = false;
+      (data.providers || []).forEach(function (provider) {
+        var card = document.createElement('section');
+        card.className = 'provider-card';
+        var title = document.createElement('h3');
+        title.textContent = provider.displayName;
+        card.appendChild(title);
+        providerLine(card, 'Client detected', provider.client.state, provider.client.method);
+        providerLine(card, 'Account connected', provider.connection.state, provider.connection.detail);
+        providerLine(card, 'Gateway API ready', provider.api.ready ? 'yes' : 'no');
+        if (provider.id === 'chatgpt') {
+          var accountPicker = document.createElement('select');
+          var newAccount = document.createElement('option');
+          newAccount.value = ''; newAccount.textContent = 'Add a ChatGPT account';
+          accountPicker.appendChild(newAccount);
+          (provider.connection.registrations || []).forEach(function (registration) {
+            var option = document.createElement('option');
+            option.value = registration.registrationId;
+            option.textContent = registration.label + (registration.selected ? ' (active)' : '');
+            accountPicker.appendChild(option);
+            if (registration.selected) accountPicker.value = registration.registrationId;
+          });
+          var connectButton = document.createElement('button');
+          connectButton.textContent = 'Continue with ChatGPT';
+          connectButton.onclick = function () {
+            connectButton.disabled = true;
+            fetch('/v1/providers/chatgpt/connect', {
+              method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+              body: JSON.stringify(accountPicker.value ? { registrationId: accountPicker.value } : {}),
+            }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+              .then(function (result) { window.location.assign(result.authorizationUrl); })
+              .catch(function () { connectButton.disabled = false; connectButton.textContent = 'Sign-in failed; retry'; });
+          };
+          var connectRow = document.createElement('div');
+          connectRow.className = 'row';
+          connectRow.appendChild(accountPicker); connectRow.appendChild(connectButton);
+          card.appendChild(connectRow);
+          if (provider.connection.state === 'connected') {
+            var disconnectButton = document.createElement('button');
+            disconnectButton.textContent = 'Disconnect ChatGPT';
+            disconnectButton.onclick = function () {
+              disconnectButton.disabled = true;
+              fetch('/v1/providers/chatgpt/disconnect', { method: 'POST', headers: authHeaders() })
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function (result) {
+                  document.getElementById('chatgptNotice').textContent = result.remoteRevocationConfirmed
+                    ? 'ChatGPT disconnected.'
+                    : 'ChatGPT disconnected locally. Remote revocation was not confirmed; disconnect this app in ChatGPT Settings.';
+                  loadProviders();
+                })
+                .catch(function () { disconnectButton.disabled = false; });
+            };
+            card.appendChild(disconnectButton);
+          }
+        }
+        if (provider.api.ready) {
+          if (provider.id === 'claude') claudeReady = true;
+          var details = document.createElement('div');
+          details.className = 'provider-details';
+          provider.api.capabilities.forEach(function (capability) {
+            var label = document.createElement('div');
+            label.className = 'field-label';
+            label.textContent = capability.shape.replace(/_/g, ' ') + (capability.legacy ? ' (legacy)' : '') + ' Base URL';
+            details.appendChild(label);
+            var row = document.createElement('div');
+            row.className = 'row';
+            var input = document.createElement('input');
+            input.type = 'text'; input.readOnly = true; input.className = 'keybox';
+            input.value = window.location.origin + capability.basePath;
+            var copy = document.createElement('button');
+            copy.textContent = 'copy';
+            copy.onclick = function () { copyToClipboard(input.value, copy); };
+            row.appendChild(input); row.appendChild(copy); details.appendChild(row);
+          });
+          card.appendChild(details);
+          if (provider.id === 'claude') {
+            fetch('/claude/v1/models', { headers: authHeaders() }).then(function (r) { return r.json(); }).then(function (models) {
+              var modelLine = document.createElement('div');
+              modelLine.className = 'muted';
+              modelLine.textContent = 'Models: ' + (models.data || []).map(function (m) { return m.id; }).join(', ');
+              details.appendChild(modelLine);
+            }).catch(function () {});
+          } else if (provider.id === 'chatgpt') {
+            fetch('/chatgpt/v1/models', { headers: authHeaders() }).then(function (r) { if (!r.ok) throw new Error('Models unavailable'); return r.json(); }).then(function (catalog) {
+              var modelLine = document.createElement('div');
+              modelLine.className = 'muted';
+              modelLine.textContent = 'Models: ' + (catalog.models || []).map(function (m) { return m.display_name + ' (' + m.slug + ')'; }).join(', ');
+              details.appendChild(modelLine);
+            }).catch(function () {});
+          }
+        } else {
+          var action = document.createElement('div');
+          action.className = 'muted';
+          action.textContent = provider.setupAction === 'coming_soon' ? 'Coming soon'
+            : provider.setupAction === 'enable_route' ? 'Enable a Claude compatibility route in .env, then restart.'
+              : 'Action needed: ' + provider.setupAction.replace(/_/g, ' ');
+          card.appendChild(action);
+        }
+        cards.appendChild(card);
+      });
+      document.getElementById('snippetCard').hidden = !claudeReady;
+      var claude = (data.providers || []).find(function (p) { return p.id === 'claude'; });
+      var shapes = claude && claude.api.ready ? claude.api.capabilities.map(function (c) { return c.shape; }) : [];
+      Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (btn) {
+        btn.hidden = btn.getAttribute('data-tab').indexOf('anthropic') >= 0
+          ? shapes.indexOf('anthropic_messages') < 0 : shapes.indexOf('openai_chat') < 0;
+      });
+      var activeButton = document.querySelector('.tab-btn[data-tab="' + activeTab + '"]');
+      if (activeButton && activeButton.hidden) {
+        activeButton.classList.remove('active');
+        var firstVisible = document.querySelector('.tab-btn:not([hidden])');
+        if (firstVisible) {
+          firstVisible.classList.add('active');
+          activeTab = firstVisible.getAttribute('data-tab');
+          renderSnippet();
+        }
+      }
+    }).catch(function (e) { cards.textContent = 'Could not load provider status: ' + e.message; });
+  }
+
+  function loadServing() {
+    if (!getKey()) return;
+    fetch('/v1/control/serving', { headers: authHeaders() }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (data) {
+      document.getElementById('servingStatus').textContent = data.enabled ? 'Serving new requests' : 'Paused; active requests can finish';
+      document.getElementById('startServing').disabled = data.enabled;
+      document.getElementById('stopServing').disabled = !data.enabled;
+    }).catch(function (e) { document.getElementById('servingStatus').textContent = 'Could not load serving state: ' + e.message; });
+  }
+
+  function setServing(enabled) {
+    fetch('/v1/control/serving', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()), body: JSON.stringify({ enabled: enabled }) })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function () { loadServing(); }).catch(function (e) { document.getElementById('servingStatus').textContent = 'Could not change serving state: ' + e.message; });
+  }
+  document.getElementById('startServing').onclick = function () { setServing(true); };
+  document.getElementById('stopServing').onclick = function () { setServing(false); };
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]; });
+  }
+
   function loadUsage() {
     var k = getKey();
     var el = document.getElementById('usageBody');
@@ -293,13 +442,18 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     }).then(function (u) {
       var rows = Object.keys(u.byRoute || {}).map(function (route) {
         var s = u.byRoute[route];
-        return '<tr><td>' + route + '</td><td>' + s.total + '</td><td>' + s.ok + '</td><td>' + s.error + '</td><td>' + (s.avgQueueWaitMs == null ? '\u2013' : s.avgQueueWaitMs + 'ms') + '</td></tr>';
+        return '<tr><td>' + escapeHtml(route) + '</td><td>' + s.total + '</td><td>' + s.ok + '</td><td>' + s.error + '</td><td>' + (s.avgQueueWaitMs == null ? '\u2013' : s.avgQueueWaitMs + 'ms') + '</td></tr>';
+      }).join('');
+      var providerRows = Object.keys(u.byProvider || {}).map(function (provider) {
+        var s = u.byProvider[provider];
+        return '<tr><td>' + escapeHtml(provider) + '</td><td>' + s.total + '</td><td>' + s.ok + '</td><td>' + s.error + '</td></tr>';
       }).join('');
       var errRows = Object.keys(u.errorsByType || {}).map(function (t) {
-        return '<tr><td>' + t + '</td><td>' + u.errorsByType[t] + '</td></tr>';
+        return '<tr><td>' + escapeHtml(t) + '</td><td>' + u.errorsByType[t] + '</td></tr>';
       }).join('');
       el.innerHTML =
         '<div class="stats-grid"><div><div class="stat">' + u.total + '</div><div class="stat-label">total requests</div></div></div>' +
+        '<table><thead><tr><th>provider</th><th>total</th><th>ok</th><th>error</th></tr></thead><tbody>' + (providerRows || '<tr><td colspan="4" class="muted">no requests yet</td></tr>') + '</tbody></table>' +
         '<table><thead><tr><th>route</th><th>total</th><th>ok</th><th>error</th><th>avg queue wait</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5" class="muted">no requests yet</td></tr>') + '</tbody></table>' +
         (errRows ? '<h3 style="font-size:12px;color:#888;margin:16px 0 4px">errors by type</h3><table><tbody>' + errRows + '</tbody></table>' : '');
     }).catch(function (e) {
@@ -346,6 +500,8 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     if (stored) {
       applyKey(stored);
       loadUsage();
+      loadProviders();
+      loadServing();
       return;
     }
     // First run: no key saved yet in this browser — fetch the one the app
@@ -359,6 +515,8 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
       applyKey(d.apiKey);
       keyMsg.textContent = 'Found automatically \u2014 ready to use.';
       loadUsage();
+      loadProviders();
+      loadServing();
     }).catch(function () {
       keyMsg.textContent = 'Could not fetch it automatically. It is in the .env file in the app folder, on the GATEWAY_API_KEY= line.';
     });
@@ -367,7 +525,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   loadHealth();
   renderSnippet();
   init();
-  setInterval(loadHealth, 5000);
+  setInterval(function () { loadHealth(); loadProviders(); loadServing(); }, 5000);
 })();
 </script>
 </body>

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { GatewayDeps } from '../app.js';
 import { AnthropicMessagesRequestSchema } from '../schemas/anthropic-messages.js';
 import { anthropicRequestToInternal, internalResponseToAnthropic, errorToAnthropicBody, toAnthropicSSE } from '../translator/anthropic.js';
@@ -18,20 +18,21 @@ function sendAnthropicError(reply: FastifyReply, err: unknown): void {
 }
 
 /** POST /v1/messages — Anthropic-compatible (PRD §7.B). Built first per the Anthropic-first build order (lower impedance to the Claude Adapter's native shape). */
-export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: GatewayDeps): void {
+export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: GatewayDeps, paths: readonly string[]): void {
   const { sessionManager, claudeProvider, queue, credentialMonitor, requireApiKey } = gateway;
 
   // Auth is checked INSIDE the handler's own try/catch (not a Fastify
   // preHandler) so a rejection renders through this route's own Anthropic
   // error shape — a preHandler's thrown error bypasses the handler entirely
   // and would otherwise fall through to Fastify's generic 500 response.
-  app.post('/v1/messages', async (request, reply) => {
+  const handler = async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = generateRequestId();
     const startedAt = Date.now();
     let sessionIdForLog: string | undefined;
 
     try {
       await requireApiKey(request, reply);
+      gateway.servingGate.assertEnabled();
       credentialMonitor.assertValid();
 
       const parsed = AnthropicMessagesRequestSchema.safeParse(request.body);
@@ -73,7 +74,7 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
         });
         reply.raw.end();
         if (body.session_id && capturedSessionId) sessionManager.attachProviderSessionId(body.session_id, capturedSessionId);
-        sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, route: 'anthropic', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
+        sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, provider: 'claude', route: 'anthropic', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
         return;
       }
 
@@ -85,7 +86,7 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
       });
 
       if (body.session_id) sessionManager.attachProviderSessionId(body.session_id, response.sessionId);
-      sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, route: 'anthropic', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
+      sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, provider: 'claude', route: 'anthropic', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
 
       reply.send(internalResponseToAnthropic(response));
     } catch (err) {
@@ -93,6 +94,7 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
         id: requestId,
         sessionId: sessionIdForLog,
         route: 'anthropic',
+        provider: 'claude',
         status: 'error',
         startedAt,
         completedAt: Date.now(),
@@ -104,5 +106,6 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
         reply.raw.end();
       }
     }
-  });
+  };
+  for (const path of paths) app.post(path, handler);
 }

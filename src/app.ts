@@ -8,14 +8,21 @@ import { ConcurrencyQueue } from './concurrency/queue.js';
 import { createApiKeyPreHandler } from './auth/api-key.js';
 import { createLoggerOptions } from './utils/logger.js';
 import { registerHealthRoute } from './routes/health.js';
-import { registerModelsRoute } from './routes/models.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
 import { registerUsageRoute } from './routes/usage.js';
 import { registerDashboardRoute } from './routes/dashboard.js';
 import { registerSetupRoute } from './routes/setup.js';
-import { registerAnthropicCompatRoute } from './routes/anthropic-compat.js';
-import { registerOpenAiCompatRoute } from './routes/openai-compat.js';
 import { ApiError } from './errors/api-error.js';
+import { ProviderRegistry } from './providers/registry.js';
+import { createBuiltinAdapters } from './providers/builtin-adapters.js';
+import { registerProvidersRoute } from './routes/providers.js';
+import { ServingGate } from './control/serving-gate.js';
+import { registerControlRoute } from './routes/control.js';
+import { ChatGptCredentialStore } from './chatgpt/credential-store.js';
+import { ChatGptOAuth, type OAuthFetch } from './chatgpt/oauth.js';
+import { registerChatGptAuthRoutes } from './routes/chatgpt-auth.js';
+import { ChatGptConnection } from './chatgpt/connection.js';
+import { ChatGptUpstream } from './chatgpt/upstream.js';
 
 export interface GatewayDeps {
   config: Config;
@@ -24,6 +31,13 @@ export interface GatewayDeps {
   credentialMonitor: CredentialMonitor;
   queue: ConcurrencyQueue;
   requireApiKey: ReturnType<typeof createApiKeyPreHandler>;
+  providerRegistry: ProviderRegistry;
+  servingGate: ServingGate;
+  chatGptStore: ChatGptCredentialStore;
+  chatGptOAuth: ChatGptOAuth;
+  chatGptConnection: ChatGptConnection;
+  chatGptUpstream: ChatGptUpstream;
+  chatGptQueue: ConcurrencyQueue;
 }
 
 export interface BuildAppOptions {
@@ -32,6 +46,8 @@ export interface BuildAppOptions {
   claudeProvider?: ClaudeProvider;
   /** Override for tests, e.g. ':memory:'. Defaults to config.DATABASE_URL. */
   dbPath?: string;
+  chatGptStore?: ChatGptCredentialStore;
+  chatGptFetch?: OAuthFetch;
 }
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -47,8 +63,16 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     requestTimeoutMs: config.REQUEST_TIMEOUT_MS,
   });
   const requireApiKey = createApiKeyPreHandler(config.GATEWAY_API_KEY);
+  const providerRegistry = new ProviderRegistry();
+  const servingGate = new ServingGate();
+  const chatGptStore = opts.chatGptStore ?? new ChatGptCredentialStore(config.CHATGPT_CREDENTIALS_PATH);
+  const chatGptOAuth = new ChatGptOAuth(chatGptStore, opts.chatGptFetch);
+  const chatGptConnection = new ChatGptConnection(chatGptStore, opts.chatGptFetch);
+  const chatGptUpstream = new ChatGptUpstream(chatGptConnection, opts.chatGptFetch);
+  const chatGptQueue = new ConcurrencyQueue({ maxConcurrent: config.MAX_CONCURRENT_REQUESTS, maxQueueSize: config.QUEUE_MAX_SIZE, requestTimeoutMs: config.REQUEST_TIMEOUT_MS });
+  for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptConnection)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey };
+  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection, chatGptUpstream, chatGptQueue };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {
@@ -65,18 +89,23 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       reply.code(err.httpStatus).send({ error: { type: err.category, message: err.message } });
       return;
     }
+    if (err && typeof err === 'object' && 'statusCode' in err && typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500) {
+      reply.code(err.statusCode).send({ error: { type: 'invalid_request_error', message: 'Invalid request body' } });
+      return;
+    }
     app.log.error(err);
     reply.code(500).send({ error: { type: 'internal_error', message: 'Internal server error' } });
   });
 
   registerHealthRoute(app, gateway);
-  registerModelsRoute(app, gateway);
+  registerProvidersRoute(app, gateway);
+  registerControlRoute(app, gateway);
   registerSessionsRoutes(app, gateway);
   registerUsageRoute(app, gateway);
   registerDashboardRoute(app, gateway);
   registerSetupRoute(app, gateway);
-  if (config.ENABLE_ANTHROPIC_COMPAT_ROUTE) registerAnthropicCompatRoute(app, gateway);
-  if (config.ENABLE_OPENAI_COMPAT_ROUTE) registerOpenAiCompatRoute(app, gateway);
+  registerChatGptAuthRoutes(app, gateway);
+  providerRegistry.registerRoutes(app, gateway);
 
   // Every route gates on credentialMonitor.status — without this, it starts
   // at "not yet checked" and every request 503s until CREDENTIAL_CHECK_INTERVAL_MS

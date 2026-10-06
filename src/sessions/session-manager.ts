@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { ProviderId } from '../providers/registry.js';
 
 export interface SessionRecord {
   id: string;
@@ -12,13 +13,15 @@ export interface SessionRecord {
 export interface UsageStats {
   total: number;
   byRoute: Record<string, { total: number; ok: number; error: number; avgQueueWaitMs: number | null }>;
+  byProvider: Record<string, { total: number; ok: number; error: number; avgQueueWaitMs: number | null }>;
   errorsByType: Record<string, number>;
 }
 
 export interface RequestLogEntry {
   id: string;
   sessionId?: string;
-  route: 'openai' | 'anthropic';
+  route: 'openai' | 'anthropic' | 'responses';
+  provider: ProviderId;
   status: 'ok' | 'error';
   startedAt: number;
   completedAt?: number;
@@ -54,6 +57,7 @@ export class SessionManager {
         id TEXT PRIMARY KEY,
         session_id TEXT,
         route TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'claude',
         status TEXT NOT NULL,
         started_at INTEGER NOT NULL,
         completed_at INTEGER,
@@ -61,6 +65,10 @@ export class SessionManager {
         queue_wait_ms INTEGER
       );
     `);
+    const columns = this.db.prepare('PRAGMA table_info(requests)').all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'provider')) {
+      this.db.exec("ALTER TABLE requests ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'");
+    }
   }
 
   /** Returns the provider (Agent SDK) session id to resume, or undefined for a stateless fresh call. */
@@ -105,33 +113,34 @@ export class SessionManager {
 
   recordRequest(entry: RequestLogEntry): void {
     this.db
-      .prepare('INSERT INTO requests (id, session_id, route, status, started_at, completed_at, error_type, queue_wait_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(entry.id, entry.sessionId ?? null, entry.route, entry.status, entry.startedAt, entry.completedAt ?? null, entry.errorType ?? null, entry.queueWaitMs ?? null);
+      .prepare('INSERT INTO requests (id, session_id, route, provider, status, started_at, completed_at, error_type, queue_wait_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(entry.id, entry.sessionId ?? null, entry.route, entry.provider, entry.status, entry.startedAt, entry.completedAt ?? null, entry.errorType ?? null, entry.queueWaitMs ?? null);
   }
 
   /** Basic usage dashboard data (PRD §22 P2.4/§28 Phase 4) — split by route, from the `requests` audit log already recorded by every call. */
   getUsageStats(): UsageStats {
-    const byRouteRows = this.db.prepare('SELECT route, status, COUNT(*) as cnt, AVG(queue_wait_ms) as avg_wait FROM requests GROUP BY route, status').all() as Array<{
-      route: string;
-      status: string;
-      cnt: number;
-      avg_wait: number | null;
-    }>;
+    type AggregateRow = { category: string; total: number; ok: number; error: number; avg_wait: number | null };
+    const queryAggregate = (column: 'route' | 'provider'): AggregateRow[] => this.db.prepare(`
+      SELECT ${column} AS category, COUNT(*) AS total,
+        SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS ok,
+        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error,
+        AVG(queue_wait_ms) AS avg_wait
+      FROM requests GROUP BY ${column}
+    `).all() as AggregateRow[];
     const errorTypeRows = this.db.prepare("SELECT error_type, COUNT(*) as cnt FROM requests WHERE error_type IS NOT NULL GROUP BY error_type").all() as Array<{ error_type: string; cnt: number }>;
 
-    const byRoute: UsageStats['byRoute'] = {};
+    const toStats = (rows: AggregateRow[]): UsageStats['byRoute'] => Object.fromEntries(rows.map((row) => [row.category, {
+      total: row.total, ok: row.ok, error: row.error,
+      avgQueueWaitMs: row.avg_wait === null ? null : Math.round(row.avg_wait),
+    }]));
+    const byRoute = toStats(queryAggregate('route'));
+    const byProvider = toStats(queryAggregate('provider'));
     let total = 0;
-    for (const row of byRouteRows) {
-      const entry = (byRoute[row.route] ??= { total: 0, ok: 0, error: 0, avgQueueWaitMs: null });
-      entry.total += row.cnt;
-      entry[row.status === 'ok' ? 'ok' : 'error'] += row.cnt;
-      if (row.avg_wait !== null) entry.avgQueueWaitMs = Math.round(row.avg_wait);
-      total += row.cnt;
-    }
+    for (const row of Object.values(byRoute)) total += row.total;
     const errorsByType: Record<string, number> = {};
     for (const row of errorTypeRows) errorsByType[row.error_type] = row.cnt;
 
-    return { total, byRoute, errorsByType };
+    return { total, byRoute, byProvider, errorsByType };
   }
 
   close(): void {

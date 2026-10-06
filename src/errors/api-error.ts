@@ -5,7 +5,7 @@
 // for a bad key (the @anthropic-ai/sdk client throws its AuthenticationError
 // class only on that exact shape); real OpenAI clients expect 401 with
 // `type: "invalid_request_error"` + `code: "invalid_api_key"`.
-export type ApiErrorCategory = 'invalid_request_error' | 'rate_limit_error' | 'usage_limit_error' | 'credential_error' | 'provider_error' | 'authentication_error';
+export type ApiErrorCategory = 'invalid_request_error' | 'rate_limit_error' | 'usage_limit_error' | 'credential_error' | 'provider_error' | 'authentication_error' | 'service_paused';
 
 const HTTP_STATUS: Record<ApiErrorCategory, number> = {
   invalid_request_error: 400,
@@ -14,6 +14,7 @@ const HTTP_STATUS: Record<ApiErrorCategory, number> = {
   credential_error: 503,
   provider_error: 502,
   authentication_error: 401,
+  service_paused: 503,
 };
 
 /**

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { defaultChatGptCredentialsPath } from '../chatgpt/credential-store.js';
 
 // z.coerce.boolean() just calls Boolean(value), so env var "false" would
 // coerce to `true` (non-empty string). Parse explicit true/false tokens instead.
@@ -16,6 +17,7 @@ const ConfigSchema = z.object({
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   DATABASE_URL: z.string().default('./data/gateway.db'),
+  CHATGPT_CREDENTIALS_PATH: z.string().min(1).optional(),
 
   // Defaults per spikes/FINDINGS.md's empirical concurrency-ceiling test, not PRD's placeholder value.
   MAX_CONCURRENT_REQUESTS: z.coerce.number().int().positive().default(3),
@@ -36,5 +38,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     const issues = result.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Invalid gateway configuration:\n${issues}`);
   }
-  return result.data;
+  return { ...result.data, CHATGPT_CREDENTIALS_PATH: result.data.CHATGPT_CREDENTIALS_PATH ?? defaultChatGptCredentialsPath(env) };
 }
