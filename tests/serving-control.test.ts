@@ -17,6 +17,7 @@ describe('serving control', () => {
     expect((await ctx.app.inject({ method: 'GET', url: '/v1/control/serving' })).statusCode).toBe(401);
     expect((await ctx.app.inject({ method: 'GET', url: '/v1/control/serving', headers: auth })).json()).toEqual({ enabled: true });
     expect((await ctx.app.inject({ method: 'POST', url: '/v1/control/serving', headers: auth, payload: { enabled: 'false' } })).statusCode).toBe(400);
+    expect((await ctx.app.inject({ method: 'POST', url: '/v1/control/serving', headers: { ...auth, 'content-type': 'application/json' }, payload: '{broken-json' })).statusCode).toBe(400);
     expect((await ctx.app.inject({ method: 'POST', url: '/v1/control/serving', headers: auth, payload: { enabled: false } })).json()).toEqual({ enabled: false });
     const paths = ['/v1/chat/completions', '/claude/v1/chat/completions', '/v1/messages', '/claude/v1/messages'];
     const stopped = await Promise.all(paths.map((url) => ctx.app.inject({ method: 'POST', url, headers: auth, payload: url.endsWith('messages') ? anthropicPayload : openaiPayload })));

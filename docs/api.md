@@ -43,7 +43,7 @@ Alias: `GET /claude/v1/models`. Both list the Claude model alias allow-list (`sr
 
 ## `GET /v1/providers`
 
-Returns five ordered provider cards: `claude`, `chatgpt`, `gemini`, `kimi`, `qwen`. Each has a `client` detection state, `connection` state, `api.ready` flag and supported `api.capabilities`, plus `setupAction`. Capabilities are empty until a connection is ready. In this foundation release only Claude has implemented routes; the others return `coming_soon` and no copyable capability. This route never returns the gateway key or provider credentials.
+Returns five ordered provider cards: `claude`, `chatgpt`, `gemini`, `kimi`, `qwen`. Each has a `client` detection state, `connection` state, `api.ready` flag and supported `api.capabilities`, plus `setupAction`. Capabilities are empty until a connection is ready. In this foundation release only Claude has implemented routes; the others return `coming_soon` and no copyable capability. If both Claude compatibility routes are disabled by configuration, Claude returns `enable_route`. This route never returns the gateway key or provider credentials.
 
 ## `GET /v1/control/serving`, `POST /v1/control/serving`
 

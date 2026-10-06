@@ -90,7 +90,7 @@ paths:
                                   shape: { type: string, enum: [openai_chat, anthropic_messages, openai_responses] }
                                   basePath: { type: string }
                                   legacy: { type: boolean }
-                        setupAction: { type: string, enum: [none, sign_in, enter_key, install_cli, reconnect, coming_soon] }
+                        setupAction: { type: string, enum: [none, sign_in, enter_key, install_cli, reconnect, enable_route, coming_soon] }
         '401': { description: Missing or invalid gateway key }
   /v1/control/serving:
     get:

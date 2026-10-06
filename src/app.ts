@@ -72,6 +72,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       reply.code(err.httpStatus).send({ error: { type: err.category, message: err.message } });
       return;
     }
+    if (err && typeof err === 'object' && 'statusCode' in err && typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500) {
+      reply.code(err.statusCode).send({ error: { type: 'invalid_request_error', message: 'Invalid request body' } });
+      return;
+    }
     app.log.error(err);
     reply.code(500).send({ error: { type: 'internal_error', message: 'Internal server error' } });
   });

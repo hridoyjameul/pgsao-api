@@ -29,6 +29,16 @@ describe('provider status', () => {
       expect(claude.api.capabilities.some((c: { shape: string }) => c.shape === 'anthropic_messages')).toBe(false);
     } finally { await disabled.close(); }
   });
+
+  it('explains when both implemented Claude shapes are disabled', async () => {
+    const disabled = await startTestApp({ ENABLE_ANTHROPIC_COMPAT_ROUTE: 'false', ENABLE_OPENAI_COMPAT_ROUTE: 'false' });
+    try {
+      const response = await disabled.app.inject({ method: 'GET', url: '/v1/providers', headers: { authorization: `Bearer ${TEST_API_KEY}` } });
+      const claude = response.json().providers[0];
+      expect(claude.api.ready).toBe(false);
+      expect(claude.setupAction).toBe('enable_route');
+    } finally { await disabled.close(); }
+  });
 });
 
 describe('non-executing CLI detection', () => {

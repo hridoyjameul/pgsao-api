@@ -13,7 +13,7 @@ export type ProviderStatus = {
   client: { state: 'detected' | 'not_detected' | 'not_required'; method: string };
   connection: { state: 'connected' | 'disconnected' | 'not_configured'; detail?: string };
   api: { ready: boolean; capabilities: ProviderCapability[] };
-  setupAction: 'none' | 'sign_in' | 'enter_key' | 'install_cli' | 'reconnect' | 'coming_soon';
+  setupAction: 'none' | 'sign_in' | 'enter_key' | 'install_cli' | 'reconnect' | 'enable_route' | 'coming_soon';
 };
 
 export interface ProviderAdapter {
@@ -44,7 +44,8 @@ export class ProviderRegistry {
       const capabilities = connection.state === 'connected' ? [...adapter.capabilities] : [];
       const ready = capabilities.length > 0;
       const setupAction: ProviderStatus['setupAction'] = ready ? 'none'
-        : adapter.capabilities.length === 0 ? 'coming_soon'
+        : adapter.id === 'claude' && adapter.capabilities.length === 0 ? 'enable_route'
+          : adapter.capabilities.length === 0 ? 'coming_soon'
           : connection.state === 'disconnected' ? 'reconnect'
             : adapter.connectionMethod === 'vendor_key' ? 'enter_key'
               : adapter.connectionMethod === 'oauth' ? 'sign_in'

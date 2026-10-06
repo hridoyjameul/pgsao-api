@@ -328,7 +328,9 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
         } else {
           var action = document.createElement('div');
           action.className = 'muted';
-          action.textContent = provider.setupAction === 'coming_soon' ? 'Coming soon' : 'Action needed: ' + provider.setupAction.replace(/_/g, ' ');
+          action.textContent = provider.setupAction === 'coming_soon' ? 'Coming soon'
+            : provider.setupAction === 'enable_route' ? 'Enable a Claude compatibility route in .env, then restart.'
+              : 'Action needed: ' + provider.setupAction.replace(/_/g, ' ');
           card.appendChild(action);
         }
         cards.appendChild(card);
@@ -470,7 +472,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   loadHealth();
   renderSnippet();
   init();
-  setInterval(loadHealth, 5000);
+  setInterval(function () { loadHealth(); loadProviders(); loadServing(); }, 5000);
 })();
 </script>
 </body>
