@@ -74,7 +74,7 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
         });
         reply.raw.end();
         if (body.session_id && capturedSessionId) sessionManager.attachProviderSessionId(body.session_id, capturedSessionId);
-        sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, route: 'anthropic', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
+        sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, provider: 'claude', route: 'anthropic', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
         return;
       }
 
@@ -86,7 +86,7 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
       });
 
       if (body.session_id) sessionManager.attachProviderSessionId(body.session_id, response.sessionId);
-      sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, route: 'anthropic', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
+      sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, provider: 'claude', route: 'anthropic', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
 
       reply.send(internalResponseToAnthropic(response));
     } catch (err) {
@@ -94,6 +94,7 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
         id: requestId,
         sessionId: sessionIdForLog,
         route: 'anthropic',
+        provider: 'claude',
         status: 'error',
         startedAt,
         completedAt: Date.now(),

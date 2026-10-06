@@ -80,7 +80,7 @@ export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: Gateway
         reply.raw.write('data: [DONE]\n\n');
         reply.raw.end();
         if (body.session_id && capturedSessionId) sessionManager.attachProviderSessionId(body.session_id, capturedSessionId);
-        sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, route: 'openai', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
+        sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, provider: 'claude', route: 'openai', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
         return;
       }
 
@@ -92,7 +92,7 @@ export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: Gateway
       });
 
       if (body.session_id) sessionManager.attachProviderSessionId(body.session_id, response.sessionId);
-      sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, route: 'openai', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
+      sessionManager.recordRequest({ id: requestId, sessionId: body.session_id, provider: 'claude', route: 'openai', status: 'ok', startedAt, completedAt: Date.now(), queueWaitMs });
 
       reply.send(internalResponseToOpenAi(response));
     } catch (err) {
@@ -100,6 +100,7 @@ export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: Gateway
         id: requestId,
         sessionId: sessionIdForLog,
         route: 'openai',
+        provider: 'claude',
         status: 'error',
         startedAt,
         completedAt: Date.now(),
