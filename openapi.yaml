@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: PGSAO API
-  description: Personal Gateway for Anthropic/OpenAI API
-  version: 0.0.1
+  description: Personal AI gateway foundation. Claude inference is implemented; other provider cards have status only.
+  version: 0.0.2
   license:
     name: MIT
 servers:
@@ -11,6 +11,12 @@ security:
   - bearerAuth: []
   - apiKeyAuth: []
 paths:
+  /dashboard:
+    get:
+      summary: Local provider control panel
+      security: []
+      responses:
+        '200': { description: Self-contained HTML dashboard }
   /health:
     get:
       summary: Health check (unauthenticated)
@@ -40,6 +46,81 @@ paths:
       responses:
         '200':
           description: OK
+  /claude/v1/models:
+    $ref: '#/paths/~1v1~1models'
+  /v1/providers:
+    get:
+      summary: List provider detection, connection, and API readiness states
+      responses:
+        '200':
+          description: Five provider statuses; no gateway or vendor credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers]
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, displayName, client, connection, api, setupAction]
+                      properties:
+                        id: { type: string, enum: [claude, chatgpt, gemini, kimi, qwen] }
+                        displayName: { type: string }
+                        client:
+                          type: object
+                          properties:
+                            state: { type: string, enum: [detected, not_detected, not_required] }
+                            method: { type: string }
+                        connection:
+                          type: object
+                          properties:
+                            state: { type: string, enum: [connected, disconnected, not_configured] }
+                            detail: { type: string }
+                        api:
+                          type: object
+                          properties:
+                            ready: { type: boolean }
+                            capabilities:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  shape: { type: string, enum: [openai_chat, anthropic_messages, openai_responses] }
+                                  basePath: { type: string }
+                                  legacy: { type: boolean }
+                        setupAction: { type: string, enum: [none, sign_in, enter_key, install_cli, reconnect, coming_soon] }
+        '401': { description: Missing or invalid gateway key }
+  /v1/control/serving:
+    get:
+      summary: Read process-local inference admission state
+      responses:
+        '200':
+          description: Current state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled]
+                properties:
+                  enabled: { type: boolean }
+    post:
+      summary: Pause or resume new inference requests
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              additionalProperties: false
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200': { description: New state, as an enabled boolean }
+        '400': { description: Invalid body }
+        '401': { description: Missing or invalid gateway key }
   /v1/chat/completions:
     post:
       summary: OpenAI Chat Completions-compatible
@@ -71,7 +152,9 @@ paths:
         '401': { description: authentication_error }
         '429': { description: rate_limit_error or usage_limit_error }
         '502': { description: provider_error }
-        '503': { description: credential_error }
+        '503': { description: credential_error or service_paused }
+  /claude/v1/chat/completions:
+    $ref: '#/paths/~1v1~1chat~1completions'
   /v1/messages:
     post:
       summary: Anthropic Messages-compatible
@@ -103,10 +186,12 @@ paths:
         '401': { description: authentication_error }
         '429': { description: rate_limit_error or usage_limit_error }
         '502': { description: provider_error }
-        '503': { description: credential_error }
+        '503': { description: credential_error or service_paused }
+  /claude/v1/messages:
+    $ref: '#/paths/~1v1~1messages'
   /v1/usage:
     get:
-      summary: Basic usage dashboard data, split by route (Phase 4)
+      summary: Request audit counts split by route and provider
       responses:
         '200':
           description: OK
@@ -117,6 +202,15 @@ paths:
                 properties:
                   total: { type: integer }
                   byRoute:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        total: { type: integer }
+                        ok: { type: integer }
+                        error: { type: integer }
+                        avgQueueWaitMs: { type: integer, nullable: true }
+                  byProvider:
                     type: object
                     additionalProperties:
                       type: object

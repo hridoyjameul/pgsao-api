@@ -2,7 +2,7 @@
 
 A plain-English guide for **non-developers**. No terminal commands to memorize, no config files to edit by hand.
 
-**What this is:** PGSAO API turns your own Claude subscription into a private API key you can paste into other apps (n8n, chatbots, scripts, etc.) instead of paying for a separate API.
+**What this is:** PGSAO API gives your own AI accounts a local gateway API key you can paste into other apps. Claude works in this foundation release. ChatGPT, Gemini, Kimi, and Qwen have dashboard cards and will get separate API adapters in later releases.
 
 **GitHub repo:** https://github.com/hridoyjameul/pgsao-api
 
@@ -57,7 +57,11 @@ Open **http://localhost:8787/dashboard**. You'll see three setup steps at the to
 2. **Claude account** — shows "Connected ✓" once the app has confirmed it can use your Claude login. If it says "Not connected," make sure you're logged into Claude Code on this computer, then reload the page.
 3. **Your API key** — already filled in for you. Click **show** to reveal it, and **copy** to copy it to your clipboard.
 
-Below that, a **"Use it in another app"** box gives you the two things any other app will ask for:
+Below that, the **AI providers** cards show three separate facts for each service: whether a known client was detected, whether the account is connected, and whether a gateway API route is ready. A detected client alone does not mean the route is ready. For now, only a connected Claude card shows copyable Base URLs. The other four cards say **Coming soon**.
+
+The **Gateway inference** Start/Stop buttons pause new AI requests while leaving this dashboard available. A request already in progress can finish. Restarting the app turns inference back on.
+
+The Claude card gives you the two things another app asks for:
 
 - A **Base URL** (there are two — use whichever the other app expects; most modern tools want the OpenAI one)
 - Your **API key** (same one as above)
@@ -72,9 +76,11 @@ Most tools that let you "bring your own API key" ask for exactly two things:
 
 | Field the other app asks for | What to paste |
 |---|---|
-| Base URL / Endpoint (OpenAI-style) | `http://localhost:8787/v1` |
-| Base URL / Endpoint (Anthropic/Claude-style) | `http://localhost:8787` |
+| Base URL / Endpoint (OpenAI-style, Claude-specific) | `http://localhost:8787/claude/v1` |
+| Base URL / Endpoint (Anthropic/Claude-style, Claude-specific) | `http://localhost:8787/claude` |
 | API key | The key shown on your dashboard |
+
+Older clients using `http://localhost:8787/v1` or `http://localhost:8787` keep working. All Claude URLs use the same gateway key. The ChatGPT, Gemini, Kimi, and Qwen cards do not provide working URLs yet.
 
 For **n8n** specifically: use its built-in **"OpenAI Chat Model"** node, and enter the Base URL and key above as its credential. See `docs/n8n.md` in this repo for a more detailed walkthrough if needed.
 
@@ -89,6 +95,7 @@ For **n8n** specifically: use its built-in **"OpenAI Chat Model"** node, and ent
 | `start.bat` window closes immediately or shows an error | Make sure Node.js is installed. Re-run `start.bat` and read the message in the window before it closes. |
 | Browser shows "can't connect" right after starting | The app takes a few seconds to start — wait a moment and reload `http://localhost:8787/dashboard`. |
 | A different app can't reach the gateway | Make sure the app is still running (its window should still be open) and that you copied the Base URL and key exactly, with no extra spaces. |
+| An AI request says `service_paused` | Click **Start** in Gateway inference. |
 
 If none of these help, open an issue on GitHub (see below) — include what the dashboard shows and any error text.
 

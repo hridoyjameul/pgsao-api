@@ -1,10 +1,12 @@
 # PGSAO API
 
-**P**ersonal **G**ateway for **A**nthropic/**O**penAI **API** — expose your own Claude subscription behind two spec-accurate, drop-in-compatible HTTP surfaces:
+**P**ersonal **G**ateway for **A**nthropic/**O**penAI **API** — a local, MIT-licensed gateway for your own AI accounts. This foundation release provides working Claude routes and a five-provider dashboard. ChatGPT, Gemini, Kimi, and Qwen cards show setup status while their separate adapters are being built.
 
 ```http
 POST /v1/chat/completions      (OpenAI Chat Completions shape)
 POST /v1/messages              (Anthropic Messages shape)
+POST /claude/v1/chat/completions (Claude's provider-specific OpenAI shape)
+POST /claude/v1/messages         (Claude's provider-specific Anthropic shape)
 ```
 
 Point any existing OpenAI-SDK or Anthropic-SDK client — or n8n, or a script, or your own tool — at this gateway with just a base URL and an API key change, and it works, unmodified. Runs locally on your machine or on a private cloud server you control.
@@ -29,12 +31,17 @@ On Windows, double-clicking `start.bat` does the `npm install` + `npm run dev` +
 
 There's no manual config step: on first run, the app creates its own `.env` (from `.env.example`) and generates its own `GATEWAY_API_KEY` automatically if one isn't already set. (You can still set either by hand first if you want to pin specific values — the auto-setup only fills in what's missing.)
 
-Then open **http://localhost:8787/dashboard** — a web control panel (no separate install, no build step) for everything below: live status, usage stats, session management, and ready-to-copy curl/SDK snippets. It fetches your auto-generated `GATEWAY_API_KEY` for you on first load (from this machine only) and keeps it in that browser's localStorage from then on.
+Then open **http://localhost:8787/dashboard** — a web control panel for provider status, usage, Start/Stop, session management, and ready-to-copy Claude URLs. It fetches your auto-generated `GATEWAY_API_KEY` on first load (from this machine only) and keeps that gateway key in the browser's localStorage. Provider credentials are never stored there.
 
 ### Test both routes
 
 ```bash
 curl http://localhost:8787/v1/chat/completions \
+  -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"model":"claude-via-gateway","messages":[{"role":"user","content":"Hello."}]}'
+
+# Same Claude handler under its provider prefix:
+curl http://localhost:8787/claude/v1/chat/completions \
   -H "Authorization: Bearer $GATEWAY_API_KEY" -H "Content-Type: application/json" \
   -d '{"model":"claude-via-gateway","messages":[{"role":"user","content":"Hello."}]}'
 
@@ -48,14 +55,24 @@ Or with the real SDKs, pointed at the gateway:
 ```ts
 import OpenAI from 'openai';
 const client = new OpenAI({ apiKey: process.env.GATEWAY_API_KEY, baseURL: 'http://localhost:8787/v1' });
+// Claude-specific baseURL: http://localhost:8787/claude/v1
 
 import Anthropic from '@anthropic-ai/sdk';
 const client = new Anthropic({ apiKey: process.env.GATEWAY_API_KEY, baseURL: 'http://localhost:8787' });
+// Claude-specific baseURL: http://localhost:8787/claude
 ```
 
 ## Model names
 
-`model` is resolved against a small allow-list (`GET /v1/models`), not an open passthrough — `claude-via-gateway` uses whatever model your Agent SDK config defaults to; `claude-opus-5`/`claude-sonnet-5`/`claude-haiku-4-5` pin a specific one.
+`model` is resolved against a small allow-list (`GET /v1/models` or `/claude/v1/models`), not an open passthrough — `claude-via-gateway` uses whatever model your Agent SDK config defaults to; `claude-opus-5`/`claude-sonnet-5`/`claude-haiku-4-5` pin a specific one.
+
+## Provider dashboard and Start/Stop
+
+The dashboard always shows Claude, ChatGPT, Gemini, Kimi, and Qwen. Its three states are separate: **client detected** means a known CLI is on PATH (or no CLI is required), **account connected** means this gateway has a usable connection, and **Gateway API ready** means an implemented inference route is available. In this foundation release, only Claude can be API-ready. The other four cards say “Coming soon” and do not show copyable API URLs. Installing a CLI alone does not make an API route ready.
+
+One local `GATEWAY_API_KEY` authenticates every implemented gateway route. It is separate from each provider's login or vendor key. Stop pauses admission of new inference requests; existing streams can finish, and the dashboard, health, model, status, usage, and control routes remain available. The control is process-local and starts enabled after restart. The same controls are available through authenticated `GET` and `POST /v1/control/serving` (`{ "enabled": false }` or `true`). Provider states are available at authenticated `GET /v1/providers`.
+
+The next adapter stages add ChatGPT Responses, Kimi Code, Qwen Coding Plan, and Gemini CLI routes under their own prefixes. The dashboard will only expose each route after its adapter and connection method are working.
 
 ## Sessions (optional extension)
 
@@ -128,7 +145,7 @@ After `npm run build`, these are also available as `pgsao-api <command>` (the pa
 curl http://localhost:8787/v1/usage -H "Authorization: Bearer $GATEWAY_API_KEY"
 ```
 
-Basic stats split by route — request counts (ok/error), average concurrency-queue wait, error counts by category — pulled from the same audit log every call already writes to (`data/gateway.db`'s `requests` table).
+Basic stats split by provider and by route — request counts (ok/error), average concurrency-queue wait, error counts by category — pulled from the same audit log every call already writes to (`data/gateway.db`'s `requests` table). Existing request rows migrate to provider `claude`.
 
 ## Known MVP limitations
 
