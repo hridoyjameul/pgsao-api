@@ -168,6 +168,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   .kv { display: grid; grid-template-columns: 170px 1fr; gap: 6px 12px; font-size: 13px; }
   .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-word; }
   .notice { margin-top: 8px; color: var(--muted); font-size: 13px; }
+  #sessionsCard[hidden] + #snippetCard { grid-column: 1 / -1; }
   [hidden] { display: none !important; }
 </style>
 </head>
