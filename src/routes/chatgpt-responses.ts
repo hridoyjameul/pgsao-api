@@ -18,8 +18,8 @@ export function registerChatGptResponsesRoute(app: FastifyInstance, gateway: Gat
     const startedAt = Date.now();
     let queueWaitMs: number | undefined;
     try {
-      await gateway.requireApiKey(request, reply);
-      gateway.servingGate.assertEnabled();
+      await gateway.requireProviderKey('chatgpt')(request, reply);
+      gateway.servingGate.assertEnabled('chatgpt');
       const parsed = ChatGptResponsesRequestSchema.safeParse(request.body);
       if (!parsed.success) {
         const issue = parsed.error.issues[0]!;

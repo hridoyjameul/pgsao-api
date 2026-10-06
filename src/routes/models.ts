@@ -11,5 +11,5 @@ export function registerModelsRoute(app: FastifyInstance, gateway: GatewayDeps, 
       data: aliases.map((id) => ({ id, object: 'model', owned_by: 'pgsao-api' })),
     };
   };
-  for (const path of paths) app.get(path, { preHandler: gateway.requireApiKey }, handler);
+  for (const path of paths) app.get(path, { preHandler: gateway.requireProviderKey('claude') }, handler);
 }

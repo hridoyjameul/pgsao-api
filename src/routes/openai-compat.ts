@@ -19,7 +19,8 @@ function sendOpenAiError(reply: FastifyReply, err: unknown): void {
 
 /** POST /v1/chat/completions — OpenAI-compatible (PRD §7.A). Reuses the same InternalClaudeRequest pipeline the Anthropic route established. */
 export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: GatewayDeps, paths: readonly string[]): void {
-  const { sessionManager, claudeProvider, queue, credentialMonitor, requireApiKey } = gateway;
+  const { sessionManager, claudeProvider, queue, credentialMonitor } = gateway;
+  const requireApiKey = gateway.requireProviderKey('claude');
 
   // Auth is checked INSIDE the handler's own try/catch (not a Fastify
   // preHandler) so a rejection renders through this route's own OpenAI
@@ -32,7 +33,7 @@ export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: Gateway
 
     try {
       await requireApiKey(request, reply);
-      gateway.servingGate.assertEnabled();
+      gateway.servingGate.assertEnabled('claude');
       credentialMonitor.assertValid();
 
       const parsed = OpenAiChatCompletionsRequestSchema.safeParse(request.body);

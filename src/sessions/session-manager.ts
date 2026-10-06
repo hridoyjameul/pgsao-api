@@ -118,16 +118,16 @@ export class SessionManager {
   }
 
   /** Basic usage dashboard data (PRD §22 P2.4/§28 Phase 4) — split by route, from the `requests` audit log already recorded by every call. */
-  getUsageStats(): UsageStats {
+  getUsageStats(provider?: string): UsageStats {
     type AggregateRow = { category: string; total: number; ok: number; error: number; avg_wait: number | null };
     const queryAggregate = (column: 'route' | 'provider'): AggregateRow[] => this.db.prepare(`
       SELECT ${column} AS category, COUNT(*) AS total,
         SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS ok,
         SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error,
         AVG(queue_wait_ms) AS avg_wait
-      FROM requests GROUP BY ${column}
-    `).all() as AggregateRow[];
-    const errorTypeRows = this.db.prepare("SELECT error_type, COUNT(*) as cnt FROM requests WHERE error_type IS NOT NULL GROUP BY error_type").all() as Array<{ error_type: string; cnt: number }>;
+      FROM requests ${provider ? 'WHERE provider = ?' : ''} GROUP BY ${column}
+    `).all(...(provider ? [provider] : [])) as AggregateRow[];
+    const errorTypeRows = this.db.prepare(`SELECT error_type, COUNT(*) as cnt FROM requests WHERE error_type IS NOT NULL ${provider ? 'AND provider = ?' : ''} GROUP BY error_type`).all(...(provider ? [provider] : [])) as Array<{ error_type: string; cnt: number }>;
 
     const toStats = (rows: AggregateRow[]): UsageStats['byRoute'] => Object.fromEntries(rows.map((row) => [row.category, {
       total: row.total, ok: row.ok, error: row.error,

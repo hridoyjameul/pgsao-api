@@ -5,7 +5,9 @@ import { AgentSdkClaudeProvider } from './providers/claude.js';
 import { SessionManager } from './sessions/session-manager.js';
 import { CredentialMonitor } from './auth/credential-monitor.js';
 import { ConcurrencyQueue } from './concurrency/queue.js';
-import { createApiKeyPreHandler } from './auth/api-key.js';
+import { createApiKeyPreHandler, createProviderKeyPreHandler } from './auth/api-key.js';
+import { PROVIDER_IDS, ProviderKeyStore } from './auth/provider-keys.js';
+import { dirname, join } from 'node:path';
 import { createLoggerOptions } from './utils/logger.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
@@ -13,7 +15,7 @@ import { registerUsageRoute } from './routes/usage.js';
 import { registerDashboardRoute } from './routes/dashboard.js';
 import { registerSetupRoute } from './routes/setup.js';
 import { ApiError } from './errors/api-error.js';
-import { ProviderRegistry } from './providers/registry.js';
+import { ProviderRegistry, type ProviderId } from './providers/registry.js';
 import { createBuiltinAdapters } from './providers/builtin-adapters.js';
 import { registerProvidersRoute } from './routes/providers.js';
 import { ServingGate } from './control/serving-gate.js';
@@ -31,6 +33,8 @@ export interface GatewayDeps {
   credentialMonitor: CredentialMonitor;
   queue: ConcurrencyQueue;
   requireApiKey: ReturnType<typeof createApiKeyPreHandler>;
+  requireProviderKey: (provider: ProviderId) => ReturnType<typeof createApiKeyPreHandler>;
+  providerKeys: ProviderKeyStore;
   providerRegistry: ProviderRegistry;
   servingGate: ServingGate;
   chatGptStore: ChatGptCredentialStore;
@@ -63,6 +67,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     requestTimeoutMs: config.REQUEST_TIMEOUT_MS,
   });
   const requireApiKey = createApiKeyPreHandler(config.GATEWAY_API_KEY);
+  const dbLocation = opts.dbPath ?? config.DATABASE_URL;
+  const providerKeys = new ProviderKeyStore(dbLocation === ':memory:' ? undefined : join(dirname(dbLocation), 'provider-keys.json'));
+  const providerGuards = new Map(PROVIDER_IDS.map((id) => [id, createProviderKeyPreHandler(config.GATEWAY_API_KEY, providerKeys, id)]));
+  const requireProviderKey = (provider: ProviderId) => providerGuards.get(provider)!;
   const providerRegistry = new ProviderRegistry();
   const servingGate = new ServingGate();
   const chatGptStore = opts.chatGptStore ?? new ChatGptCredentialStore(config.CHATGPT_CREDENTIALS_PATH);
@@ -72,7 +80,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const chatGptQueue = new ConcurrencyQueue({ maxConcurrent: config.MAX_CONCURRENT_REQUESTS, maxQueueSize: config.QUEUE_MAX_SIZE, requestTimeoutMs: config.REQUEST_TIMEOUT_MS });
   for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptConnection)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection, chatGptUpstream, chatGptQueue };
+  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, requireProviderKey, providerKeys, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection, chatGptUpstream, chatGptQueue };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {
