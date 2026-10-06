@@ -32,6 +32,7 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
 
     try {
       await requireApiKey(request, reply);
+      gateway.servingGate.assertEnabled();
       credentialMonitor.assertValid();
 
       const parsed = AnthropicMessagesRequestSchema.safeParse(request.body);

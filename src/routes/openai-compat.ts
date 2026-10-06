@@ -32,6 +32,7 @@ export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: Gateway
 
     try {
       await requireApiKey(request, reply);
+      gateway.servingGate.assertEnabled();
       credentialMonitor.assertValid();
 
       const parsed = OpenAiChatCompletionsRequestSchema.safeParse(request.body);

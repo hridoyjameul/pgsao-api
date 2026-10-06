@@ -16,6 +16,8 @@ import { ApiError } from './errors/api-error.js';
 import { ProviderRegistry } from './providers/registry.js';
 import { createBuiltinAdapters } from './providers/builtin-adapters.js';
 import { registerProvidersRoute } from './routes/providers.js';
+import { ServingGate } from './control/serving-gate.js';
+import { registerControlRoute } from './routes/control.js';
 
 export interface GatewayDeps {
   config: Config;
@@ -25,6 +27,7 @@ export interface GatewayDeps {
   queue: ConcurrencyQueue;
   requireApiKey: ReturnType<typeof createApiKeyPreHandler>;
   providerRegistry: ProviderRegistry;
+  servingGate: ServingGate;
 }
 
 export interface BuildAppOptions {
@@ -49,9 +52,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
   const requireApiKey = createApiKeyPreHandler(config.GATEWAY_API_KEY);
   const providerRegistry = new ProviderRegistry();
+  const servingGate = new ServingGate();
   for (const adapter of createBuiltinAdapters(credentialMonitor, config)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry };
+  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {
@@ -74,6 +78,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   registerHealthRoute(app, gateway);
   registerProvidersRoute(app, gateway);
+  registerControlRoute(app, gateway);
   registerSessionsRoutes(app, gateway);
   registerUsageRoute(app, gateway);
   registerDashboardRoute(app, gateway);
