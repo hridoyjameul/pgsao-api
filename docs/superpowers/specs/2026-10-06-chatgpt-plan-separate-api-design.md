@@ -2,6 +2,8 @@
 
 Date: 2026-10-06
 
+This focused design is the ChatGPT adapter within the [multi-provider gateway design](2026-10-06-multi-provider-gateway-design.md).
+
 ## Intent and scope
 
 PGSAO API is an MIT licensed, open-source hobby project used personally. It currently serves two request formats through a Claude Agent SDK backend. Add a second, separately addressed API that uses a user's ChatGPT plan through OpenAI's documented Sign in with ChatGPT flow. A user should be able to connect their ChatGPT account once, call the new API from local tools, and see clearly which provider handled each request.
