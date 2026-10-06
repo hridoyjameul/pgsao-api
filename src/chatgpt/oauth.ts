@@ -73,36 +73,36 @@ export class ChatGptOAuth {
     if (!clientId || clientId === 'dynamic_agent_client' || (attempt.existing && callbackClientId && callbackClientId !== clientId)) return false;
     try {
       const form = new URLSearchParams({ grant_type: 'authorization_code', client_id: clientId, code: query.code, code_verifier: attempt.verifier, redirect_uri: attempt.redirectUri, resource: CHATGPT_RESOURCE });
-      const tokenResponse = await this.http(TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form, signal: AbortSignal.timeout(15_000) });
+      const tokenResponse = await this.http(TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form, redirect: 'error', signal: AbortSignal.timeout(15_000) });
       if (!tokenResponse.ok) return false;
       const tokens = await boundedJson(tokenResponse);
       if (typeof tokens.access_token !== 'string' || typeof tokens.refresh_token !== 'string' || typeof tokens.id_token !== 'string'
         || typeof tokens.scope !== 'string' || typeof tokens.expires_in !== 'number' || tokens.expires_in <= 0) return false;
       const scopes = tokens.scope.split(/\s+/).filter(Boolean);
       if (!scopes.includes('chatgpt.tokens.use.direct')) return false;
-      const discoveryResponse = await this.http(DISCOVERY, { signal: AbortSignal.timeout(10_000) });
+      const discoveryResponse = await this.http(DISCOVERY, { redirect: 'error', signal: AbortSignal.timeout(10_000) });
       if (!discoveryResponse.ok) return false;
       const discovery = await boundedJson(discoveryResponse);
       if (discovery.issuer !== ISSUER || typeof discovery.jwks_uri !== 'string') return false;
       const jwksUrl = new URL(discovery.jwks_uri);
       if (jwksUrl.origin !== ISSUER || jwksUrl.protocol !== 'https:') return false;
-      const jwksResponse = await this.http(jwksUrl.toString(), { signal: AbortSignal.timeout(10_000) });
+      const jwksResponse = await this.http(jwksUrl.toString(), { redirect: 'error', signal: AbortSignal.timeout(10_000) });
       if (!jwksResponse.ok) return false;
       const jwks = await boundedJson(jwksResponse) as unknown as JSONWebKeySet;
       if (!Array.isArray(jwks.keys)) return false;
-      const verified = await jwtVerify(tokens.id_token, createLocalJWKSet(jwks), { issuer: ISSUER, audience: clientId });
+      const verified = await jwtVerify(tokens.id_token, createLocalJWKSet(jwks), { issuer: ISSUER, audience: clientId, requiredClaims: ['exp', 'sub', 'nonce'] });
       if (verified.payload.nonce !== attempt.nonce || typeof verified.payload.sub !== 'string' || !verified.payload.sub) return false;
       if (attempt.existing && (attempt.existing.issuer !== ISSUER || attempt.existing.subject !== verified.payload.sub)) return false;
-      const current = await this.store.load();
       const account: ChatGptAccount = {
         registrationId: attempt.registrationId, clientId, issuer: ISSUER, subject: verified.payload.sub,
         ...(typeof verified.payload.email === 'string' ? { email: verified.payload.email } : {}),
         scopes, accessToken: tokens.access_token, refreshToken: tokens.refresh_token, idToken: tokens.id_token,
         expiresAt: Date.now() + tokens.expires_in * 1000,
       };
-      current.accounts = [...current.accounts.filter((a) => a.registrationId !== account.registrationId), account];
-      current.selectedRegistrationId = account.registrationId;
-      await this.store.save(current);
+      await this.store.update((current) => {
+        current.accounts = [...current.accounts.filter((a) => a.registrationId !== account.registrationId), account];
+        current.selectedRegistrationId = account.registrationId;
+      });
       return true;
     } catch {
       return false;

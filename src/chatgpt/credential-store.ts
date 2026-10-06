@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 
 const run = promisify(execFile);
 const SYSTEM_SID = 'S-1-5-18';
@@ -127,12 +127,23 @@ export class ChatGptCredentialStore {
   }
 
   async save(state: ChatGptStoreState): Promise<void> {
-    const operation = this.mutation.then(() => this.saveInternal(validateState(state)));
+    const operation = this.mutation.then(() => this.withFileLock(() => this.saveInternal(validateState(state))));
     this.mutation = operation.then(() => {}, () => {});
     return operation;
   }
 
-  private async saveInternal(state: ChatGptStoreState): Promise<void> {
+  async update<T>(mutate: (state: ChatGptStoreState) => T | Promise<T>): Promise<T> {
+    const operation = this.mutation.then(() => this.withFileLock(async () => {
+      const state = await this.load();
+      const result = await mutate(state);
+      await this.saveInternal(validateState(state));
+      return result;
+    }));
+    this.mutation = operation.then(() => {}, () => {});
+    return operation;
+  }
+
+  private async ensureParent(): Promise<void> {
     const parent = dirname(this.path);
     try {
       await lstat(parent);
@@ -144,6 +155,33 @@ export class ChatGptCredentialStore {
       else await chmod(parent, 0o700);
       await verifySecure(parent, true);
     }
+  }
+
+  private async withFileLock<T>(operation: () => Promise<T>): Promise<T> {
+    await this.ensureParent();
+    const lockDir = `${this.path}.lock`;
+    const deadline = Date.now() + 30_000;
+    while (true) {
+      try {
+        await mkdir(lockDir, { mode: 0o700 });
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        if (Date.now() >= deadline) throw new Error('ChatGPT credential store is busy');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    try {
+      if (process.platform === 'win32') await protectWindows(lockDir);
+      else await chmod(lockDir, 0o700);
+      await verifySecure(lockDir, true);
+      return await operation();
+    } finally { await rmdir(lockDir); }
+  }
+
+  private async saveInternal(state: ChatGptStoreState): Promise<void> {
+    await this.ensureParent();
+    const parent = dirname(this.path);
     try { await verifySecure(this.path, false); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
@@ -163,8 +201,9 @@ export class ChatGptCredentialStore {
   async getOrCreateHostId(): Promise<string> {
     const state = await this.load();
     if (state.hostId) return state.hostId;
-    state.hostId = `urn:uuid:${randomUUID()}`;
-    await this.save(state);
-    return state.hostId;
+    return this.update((latest) => {
+      latest.hostId ||= `urn:uuid:${randomUUID()}`;
+      return latest.hostId;
+    });
   }
 }

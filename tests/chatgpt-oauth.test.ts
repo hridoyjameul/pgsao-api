@@ -15,6 +15,7 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'pgsao-oauth-'));
   dirs.push(root);
   const { privateKey, publicKey } = await generateKeyPair('RS256');
+  const invalidKey = (await generateKeyPair('RS256')).privateKey;
   const jwk = await exportJWK(publicKey);
   jwk.kid = 'test-key';
   const tokenCalls: URLSearchParams[] = [];
@@ -28,10 +29,13 @@ async function fixture() {
       const form = new URLSearchParams(String(init?.body));
       tokenCalls.push(form);
       if (responseStatus !== 200) return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: responseStatus });
-      const idToken = await new SignJWT({ nonce: currentNonce, email: 'owner@example.test', ...tokenOverride })
+      const { audience, subject, scope, omitExp, badSignature, ...claims } = tokenOverride;
+      let signer = new SignJWT({ nonce: currentNonce, email: 'owner@example.test', ...claims })
         .setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).setIssuer('https://auth.openai.com')
-        .setAudience(form.get('client_id')!).setSubject('owner-sub').setIssuedAt().setExpirationTime('1h').sign(privateKey);
-      return new Response(JSON.stringify({ access_token: 'access-secret', refresh_token: 'refresh-secret', id_token: idToken, scope: 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct', expires_in: 3600 }));
+        .setAudience(typeof audience === 'string' ? audience : form.get('client_id')!).setSubject(typeof subject === 'string' ? subject : 'owner-sub').setIssuedAt();
+      if (!omitExp) signer = signer.setExpirationTime('1h');
+      const idToken = await signer.sign(badSignature ? invalidKey : privateKey);
+      return new Response(JSON.stringify({ access_token: 'access-secret', refresh_token: 'refresh-secret', id_token: idToken, scope: typeof scope === 'string' ? scope : 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct', expires_in: 3600 }));
     }
     throw new Error(`Unexpected URL ${url}`);
   };
@@ -112,6 +116,38 @@ describe('ChatGPT local OAuth', () => {
       f.setTokenOverride({ nonce: 'wrong' });
       expect((await f.callback(fourth)).headers.location).toBe('/dashboard?chatgpt=failed');
       expect((await f.app.gateway.chatGptStore.load()).accounts).toHaveLength(0);
+    } finally { await f.app.close(); }
+  });
+
+  it('rejects wrong audience, signature, missing expiry, and missing plan scope', async () => {
+    const f = await fixture();
+    try {
+      for (const variation of [{ audience: 'another-client' }, { badSignature: true }, { omitExp: true }, { scope: 'openid profile email' }]) {
+        const url = await f.connect();
+        f.setTokenOverride(variation);
+        expect((await f.callback(url)).headers.location).toBe('/dashboard?chatgpt=failed');
+        expect((await f.app.gateway.chatGptStore.load()).accounts).toHaveLength(0);
+      }
+    } finally { await f.app.close(); }
+  });
+
+  it('reauthorizes only the original signed subject and preserves selection on mismatch', async () => {
+    const f = await fixture();
+    try {
+      const first = await f.connect();
+      expect((await f.callback(first)).headers.location).toBe('/dashboard?chatgpt=connected');
+      const before = await f.app.gateway.chatGptStore.load();
+      const registrationId = before.selectedRegistrationId!;
+      const returning = await f.connect(registrationId);
+      expect(returning.searchParams.get('client_id')).toBe('oaiapp_issued');
+      expect(returning.searchParams.has('agent_name_hint')).toBe(false);
+      f.setTokenOverride({ subject: 'different-subject' });
+      expect((await f.callback(returning, { client_id: 'oaiapp_issued' })).headers.location).toBe('/dashboard?chatgpt=failed');
+      expect(await f.app.gateway.chatGptStore.load()).toEqual(before);
+      const valid = await f.connect(registrationId);
+      f.setTokenOverride({});
+      expect((await f.callback(valid, { client_id: 'oaiapp_issued' })).headers.location).toBe('/dashboard?chatgpt=connected');
+      expect((await f.app.gateway.chatGptStore.load()).selectedRegistrationId).toBe(registrationId);
     } finally { await f.app.close(); }
   });
 });

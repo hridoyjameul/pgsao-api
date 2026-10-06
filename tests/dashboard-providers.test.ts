@@ -88,6 +88,7 @@ describe('five-provider dashboard', () => {
         api: connected ? { ready: true, capabilities: [{ shape: 'openai_responses', basePath: '/chatgpt/v1' }] } : { ready: false, capabilities: [] }, setupAction: 'sign_in' };
       const data = path === '/v1/providers' ? { providers: [provider] }
         : path === '/v1/providers/chatgpt/connect' ? { authorizationUrl: 'https://auth.openai.com/api/accounts/authorize?state=test' }
+          : path === '/v1/providers/chatgpt/disconnect' ? { remoteRevocationConfirmed: false }
           : path === '/chatgpt/v1/models' ? { models: [{ slug: 'gpt-test', display_name: 'GPT Test' }] }
             : path === '/v1/control/serving' ? { enabled: true }
               : path === '/health' ? { claude_auth_status: 'ok' }
@@ -121,5 +122,8 @@ describe('five-provider dashboard', () => {
     expect(nodes.some((n) => n.textContent.includes('owner@example.test'))).toBe(true);
     expect(calls).toContain('/chatgpt/v1/models');
     expect(JSON.stringify(nodes)).not.toContain('selected-secret');
+    nodes.find((n) => n.textContent === 'Disconnect ChatGPT').onclick();
+    await settle();
+    expect(element('chatgptNotice').textContent).toContain('Remote revocation was not confirmed');
   });
 });

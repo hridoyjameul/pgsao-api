@@ -29,7 +29,9 @@ export async function forwardChatGptSse(response: Response, reply: ServerRespons
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      buffer += decoder.decode(value, { stream: true });
+      // Keep a trailing CR until the next chunk; a CRLF pair can split there.
+      buffer = buffer.replace(/\r\n/g, '\n');
       if (buffer.length > 1_048_576) throw new ApiError('provider_error', 'ChatGPT stream frame too large');
       let boundary: number;
       while ((boundary = buffer.indexOf('\n\n')) >= 0) {

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile, mkdir, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { ChatGptCredentialStore, type ChatGptStoreState } from '../src/chatgpt/credential-store.js';
 import { startTestApp, TEST_API_KEY } from './support/test-server.js';
 
@@ -50,8 +52,14 @@ describe('protected ChatGPT account store', () => {
   });
 
   it('rejects an existing insecure file or directory on load', async () => {
-    if (process.platform === 'win32') return; // ACL-specific test is exercised through implementation checks on Windows.
     const path = await pathForTest();
+    if (process.platform === 'win32') {
+      const store = new ChatGptCredentialStore(path);
+      await store.getOrCreateHostId();
+      await promisify(execFile)('icacls', [path, '/grant', '*S-1-5-32-545:(R)']);
+      await expect(store.load()).rejects.toThrow(/permission|insecure/i);
+      return;
+    }
     await mkdir(resolve(path, '..'), { recursive: true, mode: 0o777 });
     await chmod(resolve(path, '..'), 0o777);
     await writeFile(path, '{}', { mode: 0o666 });

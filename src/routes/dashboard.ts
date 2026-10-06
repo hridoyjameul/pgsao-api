@@ -176,6 +176,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
 <div class="card">
   <h2>AI providers</h2>
   <div class="muted" style="margin-bottom:12px">Each ready provider has its own Base URL. The gateway API key above works with every ready route.</div>
+  <div id="chatgptNotice" class="muted"></div>
   <div id="providerCards" class="provider-grid"><div class="muted">Loading providers&hellip;</div></div>
 </div>
 
@@ -331,7 +332,12 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
               disconnectButton.disabled = true;
               fetch('/v1/providers/chatgpt/disconnect', { method: 'POST', headers: authHeaders() })
                 .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-                .then(function () { loadProviders(); })
+                .then(function (result) {
+                  document.getElementById('chatgptNotice').textContent = result.remoteRevocationConfirmed
+                    ? 'ChatGPT disconnected.'
+                    : 'ChatGPT disconnected locally. Remote revocation was not confirmed; disconnect this app in ChatGPT Settings.';
+                  loadProviders();
+                })
                 .catch(function () { disconnectButton.disabled = false; });
             };
             card.appendChild(disconnectButton);

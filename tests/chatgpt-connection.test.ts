@@ -73,4 +73,36 @@ describe('ChatGPT connection lifecycle', () => {
     expect(f.calls.at(-1)?.form.get('token')).toBe('old-refresh');
     expect((await f.store.load()).accounts[0]).toMatchObject({ clientId: 'oaiapp_one', accessToken: '', refreshToken: '', idToken: '' });
   });
+
+  it('revokes the rotated refresh token when disconnect races with refresh', async () => {
+    const f = await fixture();
+    let started!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let revokedToken = '';
+    const http: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/oauth/token')) {
+        started();
+        await gate;
+        return new Response(JSON.stringify({ access_token: 'rotated-access', refresh_token: 'rotated-refresh', expires_in: 3600 }));
+      }
+      if (url.endsWith('/.well-known/openid-configuration')) return new Response(JSON.stringify({ revocation_endpoint: 'https://auth.openai.com/api/accounts/oauth/revoke' }));
+      if (url.endsWith('/oauth/revoke')) {
+        revokedToken = new URLSearchParams(String(init?.body)).get('token') || '';
+        return new Response(null, { status: 200 });
+      }
+      throw new Error('Unexpected OAuth URL');
+    };
+    const connection = new ChatGptConnection(f.store, http);
+    const refreshing = connection.getAccessToken();
+    await entered;
+    const disconnecting = connection.disconnect();
+    release();
+    await expect(refreshing).rejects.toThrow(/reconnect/i);
+    expect(await disconnecting).toEqual({ remoteRevocationConfirmed: true });
+    expect(revokedToken).toBe('rotated-refresh');
+    expect((await f.store.load()).accounts[0]?.refreshToken).toBe('');
+  });
 });
