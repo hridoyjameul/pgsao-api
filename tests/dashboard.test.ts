@@ -25,9 +25,10 @@ describe('GET /dashboard', () => {
     const match = body.match(/<script id="snippets-data" type="application\/json">([\s\S]*?)<\/script>/);
     expect(match).not.toBeNull();
     const snippets = JSON.parse(match![1]!);
-    expect(snippets['curl-openai']).toContain('/v1/chat/completions');
-    expect(snippets['curl-anthropic']).toContain('/v1/messages');
-    expect(snippets['sdk-openai']).toContain('OpenAI');
-    expect(snippets['sdk-anthropic']).toContain('Anthropic');
+    expect(snippets.claude['curl-openai'].code).toContain('/claude/v1/chat/completions');
+    expect(snippets.claude['curl-anthropic'].code).toContain('/claude/v1/messages');
+    expect(snippets.claude['sdk-openai'].code).toContain('OpenAI');
+    expect(snippets.claude['sdk-anthropic'].code).toContain('Anthropic');
+    expect(snippets.chatgpt['curl-responses'].code).toContain('/chatgpt/v1/responses');
   });
 });
