@@ -17,7 +17,9 @@ async function writeFrame(reply: ServerResponse, frame: string): Promise<void> {
 
 /** Forward well-formed SSE, but do not call an interrupted or failed stream a success. */
 export async function forwardChatGptSse(response: Response, reply: ServerResponse): Promise<void> {
-  if (!response.body || !response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
+  // ChatGPT's stream can omit content-type; frames are still validated strictly below.
+  const contentType = response.headers.get('content-type');
+  if (!response.body || (contentType && !contentType.toLowerCase().includes('text/event-stream'))) {
     throw new ApiError('provider_error', 'Invalid ChatGPT stream');
   }
   reply.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });

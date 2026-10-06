@@ -12,7 +12,7 @@ const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
 const body = { model: 'gpt-test', input: [{ role: 'user', content: 'Hello' }], store: false, stream: true };
 const successSse = 'event: response.created\ndata: {"type":"response.created"}\n\nevent: response.completed\ndata: {"type":"response.completed"}\n\ndata: [DONE]\n\n';
-async function fixture(sse: string | string[] = successSse, connected = true, upstreamStatus = 200) {
+async function fixture(sse: string | string[] = successSse, connected = true, upstreamStatus = 200, contentType: string | null = 'text/event-stream') {
   const root = await mkdtemp(join(tmpdir(), 'pgsao-responses-'));
   dirs.push(root);
   const store = new ChatGptCredentialStore(join(root, 'private', 'chatgpt.json'));
@@ -22,7 +22,7 @@ async function fixture(sse: string | string[] = successSse, connected = true, up
     const headers = new Headers(init?.headers);
     calls.push({ url: String(input), auth: headers.get('authorization'), body: String(init?.body) });
     const stream = Array.isArray(sse) ? new ReadableStream({ start(controller) { const encoder = new TextEncoder(); for (const chunk of sse) controller.enqueue(encoder.encode(chunk)); controller.close(); } }) : sse;
-    return new Response(stream, { status: upstreamStatus, headers: { 'content-type': 'text/event-stream' } });
+    return new Response(stream, { status: upstreamStatus, headers: contentType === null ? {} : { 'content-type': contentType } });
   };
   const config = loadConfig({ GATEWAY_API_KEY: TEST_API_KEY, LOG_LEVEL: 'silent', CHATGPT_CREDENTIALS_PATH: store.path } as NodeJS.ProcessEnv);
   const claudeProvider = new FakeClaudeProvider();
@@ -84,6 +84,17 @@ describe('ChatGPT Responses SSE', () => {
       expect(response.body).toContain('response.completed');
       expect((await f.usage()).json().byRoute.responses.ok).toBe(1);
     } finally { await f.app.close(); }
+  });
+
+  it('accepts a missing upstream content-type but rejects an explicit non-SSE one', async () => {
+    const missing = await fixture(['event: response.completed\ndata: {"type":"response.completed"}\n\n'], true, 200, null);
+    try {
+      expect((await missing.post()).statusCode).toBe(200);
+    } finally { await missing.app.close(); }
+    const json = await fixture(['{"error":"x"}'], true, 200, 'application/json');
+    try {
+      expect((await json.post()).statusCode).toBe(502);
+    } finally { await json.app.close(); }
   });
 
   it('rejects disconnected, paused and upstream-limit calls without Claude fallback', async () => {
