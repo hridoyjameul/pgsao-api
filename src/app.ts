@@ -16,6 +16,9 @@ import { registerSetupRoute } from './routes/setup.js';
 import { registerAnthropicCompatRoute } from './routes/anthropic-compat.js';
 import { registerOpenAiCompatRoute } from './routes/openai-compat.js';
 import { ApiError } from './errors/api-error.js';
+import { ProviderRegistry } from './providers/registry.js';
+import { createBuiltinAdapters } from './providers/builtin-adapters.js';
+import { registerProvidersRoute } from './routes/providers.js';
 
 export interface GatewayDeps {
   config: Config;
@@ -24,6 +27,7 @@ export interface GatewayDeps {
   credentialMonitor: CredentialMonitor;
   queue: ConcurrencyQueue;
   requireApiKey: ReturnType<typeof createApiKeyPreHandler>;
+  providerRegistry: ProviderRegistry;
 }
 
 export interface BuildAppOptions {
@@ -47,8 +51,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     requestTimeoutMs: config.REQUEST_TIMEOUT_MS,
   });
   const requireApiKey = createApiKeyPreHandler(config.GATEWAY_API_KEY);
+  const providerRegistry = new ProviderRegistry();
+  for (const adapter of createBuiltinAdapters(credentialMonitor, config)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey };
+  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {
@@ -70,6 +76,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
 
   registerHealthRoute(app, gateway);
+  registerProvidersRoute(app, gateway);
   registerModelsRoute(app, gateway);
   registerSessionsRoutes(app, gateway);
   registerUsageRoute(app, gateway);
