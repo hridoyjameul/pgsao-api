@@ -7,6 +7,7 @@ import { registerModelsRoute } from '../routes/models.js';
 import { registerAnthropicCompatRoute } from '../routes/anthropic-compat.js';
 import { registerOpenAiCompatRoute } from '../routes/openai-compat.js';
 import type { ChatGptConnection } from '../chatgpt/connection.js';
+import { registerChatGptModelsRoute } from '../routes/chatgpt-models.js';
 
 type Detector = typeof detectExecutable;
 
@@ -46,7 +47,7 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
     detectClient: async () => ({ state: 'not_required', method: 'Direct account connection' }),
     getConnection: () => chatGptConnection.status(),
     capabilities: [],
-    registerRoutes: () => {},
+    registerRoutes: (app, gateway) => registerChatGptModelsRoute(app, gateway),
   };
   return [claude,
     chatgpt,
