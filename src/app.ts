@@ -21,6 +21,7 @@ import { registerControlRoute } from './routes/control.js';
 import { ChatGptCredentialStore } from './chatgpt/credential-store.js';
 import { ChatGptOAuth, type OAuthFetch } from './chatgpt/oauth.js';
 import { registerChatGptAuthRoutes } from './routes/chatgpt-auth.js';
+import { ChatGptConnection } from './chatgpt/connection.js';
 
 export interface GatewayDeps {
   config: Config;
@@ -33,6 +34,7 @@ export interface GatewayDeps {
   servingGate: ServingGate;
   chatGptStore: ChatGptCredentialStore;
   chatGptOAuth: ChatGptOAuth;
+  chatGptConnection: ChatGptConnection;
 }
 
 export interface BuildAppOptions {
@@ -62,9 +64,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const servingGate = new ServingGate();
   const chatGptStore = opts.chatGptStore ?? new ChatGptCredentialStore(config.CHATGPT_CREDENTIALS_PATH);
   const chatGptOAuth = new ChatGptOAuth(chatGptStore, opts.chatGptFetch);
-  for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptStore)) providerRegistry.register(adapter);
+  const chatGptConnection = new ChatGptConnection(chatGptStore, opts.chatGptFetch);
+  for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptConnection)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate, chatGptStore, chatGptOAuth };
+  const gateway: GatewayDeps = { config, claudeProvider, sessionManager, credentialMonitor, queue, requireApiKey, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {

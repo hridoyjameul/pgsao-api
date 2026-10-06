@@ -6,11 +6,11 @@ import type { ProviderAdapter, ProviderId, ProviderStatus } from './registry.js'
 import { registerModelsRoute } from '../routes/models.js';
 import { registerAnthropicCompatRoute } from '../routes/anthropic-compat.js';
 import { registerOpenAiCompatRoute } from '../routes/openai-compat.js';
-import type { ChatGptCredentialStore } from '../chatgpt/credential-store.js';
+import type { ChatGptConnection } from '../chatgpt/connection.js';
 
 type Detector = typeof detectExecutable;
 
-export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, config: Config, chatGptStore: ChatGptCredentialStore, detector: Detector = detectExecutable): ProviderAdapter[] {
+export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, config: Config, chatGptConnection: ChatGptConnection, detector: Detector = detectExecutable): ProviderAdapter[] {
   const detected = (name: string): ProviderStatus['client'] => ({
     state: detector(name) ? 'detected' : 'not_detected', method: `${name} on PATH`,
   });
@@ -44,13 +44,7 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
   const chatgpt: ProviderAdapter = {
     id: 'chatgpt', displayName: 'ChatGPT', connectionMethod: 'oauth',
     detectClient: async () => ({ state: 'not_required', method: 'Direct account connection' }),
-    getConnection: async () => {
-      const state = await chatGptStore.load();
-      const selected = state.accounts.find((account) => account.registrationId === state.selectedRegistrationId);
-      return selected?.accessToken && selected.refreshToken
-        ? { state: 'connected', detail: selected.email || 'ChatGPT account connected' }
-        : { state: 'not_configured' };
-    },
+    getConnection: () => chatGptConnection.status(),
     capabilities: [],
     registerRoutes: () => {},
   };

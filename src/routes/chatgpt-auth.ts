@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { GatewayDeps } from '../app.js';
 
 export function registerChatGptAuthRoutes(app: FastifyInstance, gateway: GatewayDeps): void {
+  app.post('/v1/providers/chatgpt/disconnect', { preHandler: gateway.requireApiKey }, async () => gateway.chatGptConnection.disconnect());
   app.post<{ Body: { registrationId?: string } }>('/v1/providers/chatgpt/connect', { preHandler: gateway.requireApiKey }, async (request, reply) => {
     const body = request.body ?? {};
     if (typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => key !== 'registrationId')
