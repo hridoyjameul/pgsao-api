@@ -2,6 +2,11 @@
 
 Versions follow [Semantic Versioning](https://semver.org/). While on 0.x, a new feature bumps the middle number and a fix bumps the last one. Each release is tagged `vX.Y.Z`.
 
+## [0.2.1] - 2026-11-08
+
+### Fixed
+- Claude OpenAI-style route: a tool result sent as a list of text parts (as the OpenAI Agents SDK does) lost its text; it now reaches the model inside the tool result.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added

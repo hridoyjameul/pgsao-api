@@ -106,6 +106,19 @@ describe('Tool/function-calling (PRD §23/NG6, Phase 3)', () => {
       expect(completion.choices[0]?.message.content).toContain('Sunny, 22C');
     });
 
+    it('a tool result sent as content parts (OpenAI Agents SDK shape) keeps its text inside the result', async () => {
+      const completion = await openai.chat.completions.create({
+        model: 'claude-via-gateway',
+        tools: [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object', properties: { city: { type: 'string' } } } } }],
+        messages: [
+          { role: 'user', content: 'What is the weather in Paris?' },
+          { role: 'assistant', content: null, tool_calls: [{ id: 'call_abc', type: 'function', function: { name: 'get_weather', arguments: '{"city":"Paris"}' } }] },
+          { role: 'tool', tool_call_id: 'call_abc', content: [{ type: 'text', text: 'Sunny, 22C' }] },
+        ],
+      });
+      expect(completion.choices[0]?.message.content).toContain('Tool result(s) received: Sunny, 22C');
+    });
+
     it('tool_choice "none" suppresses tool use even when tools are declared', async () => {
       const completion = await openai.chat.completions.create({
         model: 'claude-via-gateway',

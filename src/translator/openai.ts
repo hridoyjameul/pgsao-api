@@ -10,17 +10,17 @@ type OpenAiMessage = OpenAiChatCompletionsRequest['messages'][number];
 /** Renders one message's content/tool_calls into one descriptive string — tool turns are pre-flattened here so providers/claude.ts's existing text-flattening needs no changes (spikes/FINDINGS.md's Phase 3 spike: flatten-and-restart, never resume, for tool-augmented turns). */
 function flattenMessage(m: OpenAiMessage): string {
   const parts: string[] = [];
-  if (m.content) {
-    parts.push(typeof m.content === 'string' ? m.content : m.content.map((p) => p.text).join('\n'));
+  const text = !m.content ? '' : typeof m.content === 'string' ? m.content : m.content.map((p) => p.text).join('\n');
+  // A tool result's text (string or content-part array, which the OpenAI Agents SDK sends) belongs inside the result marker only.
+  if (m.role === 'tool' && m.tool_call_id) {
+    parts.push(`[tool result for tool_use_id ${m.tool_call_id}: ${text}]`);
+    return parts.join('\n');
   }
+  if (text) parts.push(text);
   if (m.tool_calls?.length) {
     for (const tc of m.tool_calls) {
       parts.push(`[called tool ${tc.function.name} with input ${tc.function.arguments} (tool_use_id: ${tc.id})]`);
     }
-  }
-  if (m.role === 'tool' && m.tool_call_id) {
-    const resultText = typeof m.content === 'string' ? m.content : '';
-    parts.push(`[tool result for tool_use_id ${m.tool_call_id}: ${resultText}]`);
   }
   return parts.join('\n');
 }
