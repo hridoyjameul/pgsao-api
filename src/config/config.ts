@@ -20,6 +20,7 @@ const ConfigSchema = z.object({
   DATABASE_URL: z.string().default('./data/gateway.db'),
   CHATGPT_CREDENTIALS_PATH: z.string().min(1).optional(),
   KIMI_KEY_PATH: z.string().min(1).optional(),
+  CLAUDE_ACCOUNTS_PATH: z.string().min(1).optional(),
 
   // Defaults per spikes/FINDINGS.md's empirical concurrency-ceiling test, not PRD's placeholder value.
   MAX_CONCURRENT_REQUESTS: z.coerce.number().int().positive().default(3),
@@ -41,5 +42,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`Invalid gateway configuration:\n${issues}`);
   }
   const chatGptPath = result.data.CHATGPT_CREDENTIALS_PATH ?? defaultChatGptCredentialsPath(env);
-  return { ...result.data, CHATGPT_CREDENTIALS_PATH: chatGptPath, KIMI_KEY_PATH: result.data.KIMI_KEY_PATH ?? join(dirname(chatGptPath), 'kimi.json') };
+  return {
+    ...result.data,
+    CHATGPT_CREDENTIALS_PATH: chatGptPath,
+    KIMI_KEY_PATH: result.data.KIMI_KEY_PATH ?? join(dirname(chatGptPath), 'kimi.json'),
+    CLAUDE_ACCOUNTS_PATH: result.data.CLAUDE_ACCOUNTS_PATH ?? join(dirname(chatGptPath), 'claude-accounts.json'),
+  };
 }

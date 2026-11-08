@@ -30,8 +30,9 @@ function flattenContent(content: AnthropicMessagesRequest['messages'][number]['c
 }
 
 /** Inbound: validated Anthropic-shaped request -> shape-agnostic internal request (PRD §6.8). */
-export function anthropicRequestToInternal(body: AnthropicMessagesRequest): InternalRequestDraft {
-  const modelResolution = resolveModelAlias(body.model);
+export function anthropicRequestToInternal(body: AnthropicMessagesRequest, modelOverride?: { resolved: string | undefined }): InternalRequestDraft {
+  // An API key's fixed model wins over the request's, and is not limited to the alias list.
+  const modelResolution = modelOverride ?? resolveModelAlias(body.model);
   if (!modelResolution) {
     throw new ApiError('invalid_request_error', `Unknown model "${body.model}" — see GET /v1/models for the allow-list`, { param: 'model' });
   }

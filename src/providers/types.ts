@@ -24,6 +24,19 @@ export interface InternalClaudeRequest {
   resumeSessionId?: string;
   /** Tools the caller declared. When present, forces the flatten-and-restart path — never resumed (spikes/FINDINGS.md: resume() poisons a tool_use_id's resolution permanently once denied). */
   tools?: InternalToolDefinition[];
+  /** Reasoning setting from the caller's API key: 'off' disables thinking, the rest map to the SDK's effort levels. Undefined => SDK default. */
+  effort?: ClaudeEffort;
+  /** Which Claude account runs this call. Undefined => the machine's own login. */
+  auth?: ClaudeAuth;
+}
+
+export const CLAUDE_EFFORTS = ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type ClaudeEffort = (typeof CLAUDE_EFFORTS)[number];
+
+/** Selects one Claude account for a subprocess. `env` replaces the subprocess environment (see claude/accounts.ts); omitted => inherit this process's login. */
+export interface ClaudeAuth {
+  accountId: string;
+  env?: Record<string, string | undefined>;
 }
 
 /** A tool the model wants to call — the caller executes it and reports back via a fresh (non-resumed) follow-up call. */
@@ -63,5 +76,5 @@ export type CredentialStatus =
 export interface ClaudeProvider {
   sendMessage(request: InternalClaudeRequest): Promise<InternalClaudeResponse>;
   streamMessage(request: InternalClaudeRequest): AsyncIterable<InternalClaudeEvent>;
-  checkCredentials(): Promise<CredentialStatus>;
+  checkCredentials(auth?: ClaudeAuth): Promise<CredentialStatus>;
 }

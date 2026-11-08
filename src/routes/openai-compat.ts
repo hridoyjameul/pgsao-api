@@ -6,6 +6,7 @@ import { ApiError } from '../errors/api-error.js';
 import { generateRequestId } from '../utils/ids.js';
 import { assertToolSchemasSupported } from '../utils/json-schema-to-zod.js';
 import type { InternalClaudeRequest } from '../providers/types.js';
+import { claudeRequestContext } from '../claude/request-context.js';
 
 function sendOpenAiError(reply: FastifyReply, err: unknown): void {
   if (err instanceof ApiError) {
@@ -19,7 +20,7 @@ function sendOpenAiError(reply: FastifyReply, err: unknown): void {
 
 /** POST /v1/chat/completions — OpenAI-compatible (PRD §7.A). Reuses the same InternalClaudeRequest pipeline the Anthropic route established. */
 export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: GatewayDeps, paths: readonly string[]): void {
-  const { sessionManager, claudeProvider, queue, credentialMonitor } = gateway;
+  const { sessionManager, claudeProvider, queue } = gateway;
   const requireApiKey = gateway.requireProviderKey('claude');
 
   // Auth is checked INSIDE the handler's own try/catch (not a Fastify
@@ -34,7 +35,7 @@ export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: Gateway
     try {
       await requireApiKey(request, reply);
       gateway.servingGate.assertEnabled('claude');
-      credentialMonitor.assertValid();
+      const context = await claudeRequestContext(gateway, request.apiKeyProfile);
 
       const parsed = OpenAiChatCompletionsRequestSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -44,9 +45,9 @@ export function registerOpenAiCompatRoute(app: FastifyInstance, gateway: Gateway
       const body = parsed.data;
       sessionIdForLog = body.session_id;
 
-      const draft = openAiRequestToInternal(body);
+      const draft = openAiRequestToInternal(body, context.model);
       const { providerSessionId } = sessionManager.resolveSession(body.session_id);
-      const internalRequest: InternalClaudeRequest = { ...draft, resumeSessionId: providerSessionId };
+      const internalRequest: InternalClaudeRequest = { ...draft, resumeSessionId: providerSessionId, auth: context.auth, ...(context.effort ? { effort: context.effort } : {}) };
 
       // Validate tool schemas up front, before any SSE headers are sent —
       // the lazy conversion inside providers/claude.ts otherwise throws only

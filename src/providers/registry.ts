@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { GatewayDeps } from '../app.js';
+import type { AccountSummary, ProviderAccounts } from '../accounts/types.js';
 
 export type ProviderId = 'claude' | 'chatgpt' | 'gemini' | 'kimi' | 'qwen';
 export type ProviderCapability = {
@@ -14,7 +15,18 @@ export type ProviderStatus = {
   connection: { state: 'connected' | 'disconnected' | 'not_configured'; detail?: string; registrations?: Array<{ registrationId: string; label: string; selected: boolean }> };
   api: { ready: boolean; capabilities: ProviderCapability[] };
   setupAction: 'none' | 'sign_in' | 'enter_key' | 'install_cli' | 'reconnect' | 'enable_route' | 'coming_soon';
+  /** Every account this provider can serve with, the active one flagged. Empty for providers without account support. */
+  accounts: AccountSummary[];
+  /** What a per-key setting may choose; absent when the provider has no per-key settings. */
+  tuning?: ProviderTuning;
 };
+
+export interface ProviderTuning {
+  /** Allowed values for an API key's effort setting, mildest first. */
+  efforts: readonly string[];
+  /** Short UI label for the effort control, e.g. "Thinking". */
+  effortLabel: string;
+}
 
 export interface ProviderAdapter {
   id: ProviderId;
@@ -24,6 +36,8 @@ export interface ProviderAdapter {
   getConnection(): Promise<ProviderStatus['connection']>;
   capabilities: readonly ProviderCapability[];
   listModels?(): Promise<{ id: string; displayName?: string }[]>;
+  accounts?: ProviderAccounts;
+  tuning?: ProviderTuning;
   registerRoutes(app: FastifyInstance, gateway: GatewayDeps): void;
 }
 
@@ -40,7 +54,7 @@ export class ProviderRegistry {
   async listStatuses(): Promise<ProviderStatus[]> {
     return Promise.all(ORDER.filter((id) => this.adapters.has(id)).map(async (id) => {
       const adapter = this.adapters.get(id)!;
-      const [client, connection] = await Promise.all([adapter.detectClient(), adapter.getConnection()]);
+      const [client, connection, accounts] = await Promise.all([adapter.detectClient(), adapter.getConnection(), adapter.accounts?.list().catch(() => []) ?? []]);
       const capabilities = connection.state === 'connected' ? [...adapter.capabilities] : [];
       const ready = capabilities.length > 0;
       const setupAction: ProviderStatus['setupAction'] = ready ? 'none'
@@ -50,8 +64,12 @@ export class ProviderRegistry {
             : adapter.connectionMethod === 'vendor_key' ? 'enter_key'
               : adapter.connectionMethod === 'oauth' ? 'sign_in'
                 : client.state === 'not_detected' ? 'install_cli' : 'reconnect';
-      return { id, displayName: adapter.displayName, client, connection, api: { ready, capabilities }, setupAction };
+      return { id, displayName: adapter.displayName, client, connection, api: { ready, capabilities }, setupAction, accounts, ...(adapter.tuning ? { tuning: adapter.tuning } : {}) };
     }));
+  }
+
+  get(id: ProviderId): ProviderAdapter | undefined {
+    return this.adapters.get(id);
   }
 
   registerRoutes(app: FastifyInstance, gateway: GatewayDeps): void {

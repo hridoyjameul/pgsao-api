@@ -11,10 +11,17 @@ import { registerChatGptModelsRoute } from '../routes/chatgpt-models.js';
 import { registerChatGptResponsesRoute } from '../routes/chatgpt-responses.js';
 import type { KimiConnection } from '../kimi/connection.js';
 import { registerKimiRoutes } from '../routes/kimi.js';
+import type { ClaudeAccountStore } from '../claude/accounts.js';
+import type { ProviderAccounts } from '../accounts/types.js';
+import { CLAUDE_EFFORTS } from './types.js';
+
+/** Reasoning effort values the ChatGPT Responses API accepts. */
+export const CHATGPT_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+export const KIMI_EFFORTS = ['off', 'on'] as const;
 
 type Detector = typeof detectExecutable;
 
-export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, config: Config, chatGptConnection: ChatGptConnection, kimiConnection: KimiConnection, detector: Detector = detectExecutable): ProviderAdapter[] {
+export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, config: Config, chatGptConnection: ChatGptConnection, kimiConnection: KimiConnection, claudeAccounts: ClaudeAccountStore, detector: Detector = detectExecutable): ProviderAdapter[] {
   const detected = (name: string): ProviderStatus['client'] => ({
     state: detector(name) ? 'detected' : 'not_detected', method: `${name} on PATH`,
   });
@@ -26,12 +33,39 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
     registerRoutes: () => {},
   });
 
+  const claudeAccountList: ProviderAccounts = {
+    list: async () => {
+      const { selectedId, accounts } = await claudeAccounts.entries();
+      return accounts.map((account) => {
+        const status = credentialMonitor.statusFor(account.id);
+        const email = status.ok ? status.email : undefined;
+        return {
+          id: account.id,
+          label: account.kind === 'machine_login' && email ? `${email} (this computer's login)` : account.label,
+          ...(status.ok ? { detail: [account.kind !== 'machine_login' ? email : undefined, status.subscriptionType].filter(Boolean).join(' - ') || undefined } : { detail: status.message }),
+          active: account.id === selectedId,
+          connected: status.ok,
+        };
+      });
+    },
+    select: async (accountId) => { await claudeAccounts.select(accountId); credentialMonitor.setActive(accountId); },
+    remove: async (accountId) => {
+      await claudeAccounts.remove(accountId);
+      credentialMonitor.forget(accountId);
+      credentialMonitor.setActive((await claudeAccounts.entries()).selectedId);
+    },
+  };
+
   const claude: ProviderAdapter = {
     id: 'claude', displayName: 'Claude', connectionMethod: 'existing_session',
     detectClient: async () => detected('claude'),
-    getConnection: async () => credentialMonitor.status.ok
-      ? { state: 'connected', detail: credentialMonitor.status.subscriptionType }
-      : { state: 'disconnected', detail: credentialMonitor.status.message },
+    getConnection: async () => {
+      const status = credentialMonitor.status;
+      if (!status.ok) return { state: 'disconnected', detail: status.message };
+      return { state: 'connected', detail: [status.email, status.subscriptionType].filter(Boolean).join(' - ') || undefined };
+    },
+    accounts: claudeAccountList,
+    tuning: { efforts: CLAUDE_EFFORTS, effortLabel: 'Effort / thinking' },
     capabilities: [
       ...(config.ENABLE_OPENAI_COMPAT_ROUTE ? [{ shape: 'openai_chat' as const, basePath: '/v1', legacy: true }] : []),
       ...(config.ENABLE_ANTHROPIC_COMPAT_ROUTE ? [{ shape: 'anthropic_messages' as const, basePath: '/', legacy: true }] : []),
@@ -49,6 +83,8 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
     id: 'chatgpt', displayName: 'ChatGPT', connectionMethod: 'oauth',
     detectClient: async () => ({ state: 'not_required', method: 'Direct account connection' }),
     getConnection: () => chatGptConnection.status(),
+    accounts: chatGptConnection,
+    tuning: { efforts: CHATGPT_EFFORTS, effortLabel: 'Reasoning effort' },
     capabilities: [{ shape: 'openai_responses', basePath: '/chatgpt/v1' }],
     registerRoutes: (app, gateway) => {
       registerChatGptModelsRoute(app, gateway);
@@ -59,6 +95,8 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
     id: 'kimi', displayName: 'Kimi', connectionMethod: 'vendor_key',
     detectClient: async () => ({ state: 'not_required', method: 'Kimi Code membership API key' }),
     getConnection: () => kimiConnection.status(),
+    accounts: kimiConnection,
+    tuning: { efforts: KIMI_EFFORTS, effortLabel: 'Thinking' },
     capabilities: [{ shape: 'openai_chat', basePath: '/kimi/v1' }, { shape: 'anthropic_messages', basePath: '/kimi' }],
     listModels: async () => [{ id: 'kimi-for-coding' }, { id: 'kimi-for-coding-highspeed' }],
     registerRoutes: (app, gateway) => registerKimiRoutes(app, gateway),

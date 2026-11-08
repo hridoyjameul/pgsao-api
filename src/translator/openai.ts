@@ -41,8 +41,9 @@ function stopReasonToFinishReason(stopReason: string | null): 'stop' | 'length' 
 }
 
 /** Inbound: validated OpenAI-shaped request -> the SAME shape-agnostic internal request type the Anthropic translator produces. */
-export function openAiRequestToInternal(body: OpenAiChatCompletionsRequest): InternalRequestDraft {
-  const modelResolution = resolveModelAlias(body.model);
+export function openAiRequestToInternal(body: OpenAiChatCompletionsRequest, modelOverride?: { resolved: string | undefined }): InternalRequestDraft {
+  // An API key's fixed model wins over the request's, and is not limited to the alias list.
+  const modelResolution = modelOverride ?? resolveModelAlias(body.model);
   if (!modelResolution) {
     throw new ApiError('invalid_request_error', `Unknown model "${body.model}" — see GET /v1/models for the allow-list`, { param: 'model' });
   }

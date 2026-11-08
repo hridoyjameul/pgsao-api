@@ -11,11 +11,13 @@ export const KIMI_MODELS = ['kimi-for-coding', 'kimi-for-coding-highspeed'] as c
 export class KimiUpstream {
   constructor(private readonly connection: KimiConnection, private readonly http: typeof fetch = fetch) {}
 
-  /** Calls Kimi with the saved (or explicitly supplied) key. Client headers are never forwarded. */
-  async request(path: KimiPath, method: 'GET' | 'POST', body?: string, opts: { key?: string } = {}): Promise<Response> {
+  /** Calls Kimi with the active (or pinned, or explicitly supplied) key. Client headers are never forwarded. */
+  async request(path: KimiPath, method: 'GET' | 'POST', body?: string, opts: { key?: string; accountId?: string } = {}): Promise<Response> {
     let key = opts.key;
+    let accountId: string | undefined;
     if (!key) {
-      try { key = await this.connection.getKey(); } catch { throw new ApiError('credential_error', 'Add your Kimi membership key to use this route'); }
+      try { ({ apiKey: key, accountId } = await this.connection.getKey(opts.accountId)); }
+      catch { throw new ApiError('credential_error', opts.accountId ? 'The Kimi account this API key uses was removed; pick another account for the key' : 'Add your Kimi membership key to use this route'); }
     }
     const headers: Record<string, string> = {
       authorization: `Bearer ${key}`,
@@ -38,7 +40,7 @@ export class KimiUpstream {
     if (response.status === 429) {
       const retry = Number(response.headers.get('retry-after'));
       const retryAfterSeconds = Number.isFinite(retry) && retry > 0 ? Math.min(retry, 3600) : undefined;
-      this.connection.noteLimit(retryAfterSeconds);
+      if (accountId) this.connection.noteLimit(accountId, retryAfterSeconds);
       throw new ApiError('usage_limit_error', 'Kimi membership usage limit reached', retryAfterSeconds ? { retryAfterSeconds } : {});
     }
     if ([400, 404, 405, 413, 422].includes(response.status)) throw new ApiError('invalid_request_error', 'Kimi rejected the request', { code: String(response.status) });

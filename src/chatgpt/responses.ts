@@ -2,14 +2,29 @@ import { z } from 'zod';
 import type { ServerResponse } from 'node:http';
 import { once } from 'node:events';
 import { ApiError } from '../errors/api-error.js';
+import type { ApiKeyProfile } from '../auth/provider-keys.js';
+
+const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
 
 export const ChatGptResponsesRequestSchema = z.strictObject({
   model: z.string().min(1),
   input: z.array(z.strictObject({ role: z.enum(['user', 'assistant', 'developer']), content: z.string().min(1) })).min(1),
   instructions: z.string().optional(),
+  reasoning: z.strictObject({ effort: z.enum(EFFORTS).optional(), summary: z.enum(['auto', 'concise', 'detailed']).optional() }).optional(),
   store: z.literal(false),
   stream: z.literal(true),
 });
+
+export type ChatGptResponsesRequest = z.infer<typeof ChatGptResponsesRequestSchema>;
+
+/** Applies the caller's API key settings: a fixed model and reasoning effort replace the request's own. */
+export function applyChatGptProfile(body: ChatGptResponsesRequest, profile?: ApiKeyProfile): ChatGptResponsesRequest {
+  if (!profile) return body;
+  const next = { ...body };
+  if (profile.model) next.model = profile.model;
+  if (profile.effort) next.reasoning = { ...next.reasoning, effort: profile.effort as (typeof EFFORTS)[number] };
+  return next;
+}
 
 async function writeFrame(reply: ServerResponse, frame: string): Promise<void> {
   if (!reply.write(`${frame}\n\n`)) await once(reply, 'drain');

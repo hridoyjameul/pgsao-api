@@ -1,4 +1,4 @@
-import type { ClaudeProvider, CredentialStatus, InternalClaudeEvent, InternalClaudeRequest, InternalClaudeResponse } from '../../src/providers/types.js';
+import type { ClaudeAuth, ClaudeProvider, CredentialStatus, InternalClaudeEvent, InternalClaudeRequest, InternalClaudeResponse } from '../../src/providers/types.js';
 
 /**
  * Deterministic, free, fast test double for ClaudeProvider. Proves the full
@@ -90,7 +90,14 @@ export class FakeClaudeProvider implements ClaudeProvider {
     yield { type: 'stop', stopReason: response.stopReason, usage: response.usage };
   }
 
-  async checkCredentials(): Promise<CredentialStatus> {
+  /** Per-token answers for extra accounts (CLAUDE_CODE_OAUTH_TOKEN); unknown tokens are rejected like a bad login. */
+  public tokenStatuses = new Map<string, CredentialStatus>();
+  public checkedAuth: Array<ClaudeAuth | undefined> = [];
+
+  async checkCredentials(auth?: ClaudeAuth): Promise<CredentialStatus> {
+    this.checkedAuth.push(auth);
+    const token = auth?.env?.CLAUDE_CODE_OAUTH_TOKEN;
+    if (token) return this.tokenStatuses.get(token) ?? { ok: false, message: 'Invalid token' };
     return this.credentialStatus;
   }
 }

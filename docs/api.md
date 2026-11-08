@@ -51,6 +51,37 @@ Alias: `GET /claude/v1/models`. Both list the Claude model alias allow-list (`sr
 
 Returns five ordered provider cards: `claude`, `chatgpt`, `gemini`, `kimi`, `qwen`. Each has a `client` detection state, `connection` state, `api.ready` flag and supported `api.capabilities`, plus `setupAction`. Capabilities are empty until a connection is ready. ChatGPT also lists safe registration IDs and labels for account selection. Gemini, Kimi, and Qwen return `coming_soon`. If both Claude compatibility routes are disabled by configuration, Claude returns `enable_route`. This route never returns the gateway key or provider tokens.
 
+Each card also has `accounts` (`[{ id, label, detail?, active, connected }]`, never a secret) and, for Claude, ChatGPT and Kimi, `tuning` (`{ efforts: [...], effortLabel }`).
+
+## Accounts
+
+All routes need the master gateway key.
+
+- `GET /v1/providers/:id/accounts` lists accounts for `claude`, `chatgpt` or `kimi`.
+- `POST /v1/providers/:id/accounts/:accountId/select` makes that account active. Requests use the active account unless their API key is pinned to another one.
+- `DELETE /v1/providers/:id/accounts/:accountId` removes an account (ChatGPT tokens are revoked first, best effort). Keys pinned to it fall back to the active account. Claude's `default` account (this computer's own Claude Code login) cannot be removed here.
+- `POST /v1/providers/claude/accounts` adds a Claude account: `{ "label"?: "...", "token": "<output of claude setup-token>" }` or `{ "label"?: "...", "configDir": "<absolute folder logged in with CLAUDE_CONFIG_DIR=<folder> claude>" }`. The login is checked first; a rejected one returns 400. Secrets are stored in `claude-accounts.json` (`CLAUDE_ACCOUNTS_PATH`) beside the ChatGPT credential file, owner-only.
+- ChatGPT accounts are added with `POST /v1/providers/chatgpt/connect` `{}`; Kimi keys with `POST /v1/providers/kimi/credentials` `{ "apiKey": "...", "label"?: "..." }`. Both make the new account active.
+
+## API keys
+
+Each provider can have any number of gateway keys. Every key may pin settings that apply to all requests made with it; unset means the app (or the active account) decides. The master `GATEWAY_API_KEY` never applies settings.
+
+| Setting | Effect |
+| --- | --- |
+| `accountId` | Always use this account instead of the active one |
+| `model` | Replaces the request's `model`. Claude accepts a gateway alias or any real model ID |
+| `effort` | Claude: `off` (no thinking), `low`, `medium`, `high`, `xhigh`, `max`. ChatGPT: `reasoning.effort` `none`..`xhigh`. Kimi: `off`/`on` thinking |
+
+- `GET /v1/providers/:id/keys` lists keys (key values included, master key only).
+- `POST /v1/providers/:id/keys` `{ name?, accountId?, model?, effort? }` creates one.
+- `PATCH /v1/providers/:id/keys/:keyId` changes settings; send `null` to clear one.
+- `POST /v1/providers/:id/keys/:keyId/rotate` replaces the key value.
+- `DELETE /v1/providers/:id/keys/:keyId` deletes it; each provider keeps at least one key.
+- `GET /v1/providers/:id/key` and `POST /v1/providers/:id/key/rotate` still work on the provider's first key.
+
+`POST /chatgpt/v1/responses` now also accepts `reasoning: { effort?, summary? }`.
+
 ## `GET /v1/control/serving`, `POST /v1/control/serving`
 
 GET returns `{ "enabled": true }` or `false`. POST accepts exactly `{ "enabled": <boolean> }` and returns the new state. Both require gateway key auth. When disabled, new inference requests return HTTP 503 with `service_paused` in the route's native error shape. Existing streams can finish. Status, models, usage, health, dashboard, and control stay available. The setting is process-local and defaults to enabled after restart.

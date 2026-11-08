@@ -41,7 +41,7 @@ describe('ChatGPT connection lifecycle', () => {
   it('serializes refresh and persists all rotated fields before returning', async () => {
     const f = await fixture();
     const connection = new ChatGptConnection(f.store, f.http);
-    expect(await Promise.all([connection.getAccessToken(), connection.getAccessToken()])).toEqual(['new-access', 'new-access']);
+    expect((await Promise.all([connection.getAccessToken(), connection.getAccessToken()])).map((r) => r.token)).toEqual(['new-access', 'new-access']);
     expect(f.refreshCount).toBe(1);
     expect(f.calls[0]?.form.get('client_id')).toBe('oaiapp_one');
     expect(f.calls[0]?.form.get('scope')).toBeNull();

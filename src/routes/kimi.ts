@@ -6,7 +6,8 @@ import { ApiError } from '../errors/api-error.js';
 import { generateRequestId } from '../utils/ids.js';
 import { errorToOpenAiBody } from '../translator/openai.js';
 import { errorToAnthropicBody } from '../translator/anthropic.js';
-import { isValidKimiKey } from '../kimi/connection.js';
+import { isValidAccountLabel, isValidKimiKey } from '../kimi/connection.js';
+import type { ApiKeyProfile } from '../auth/provider-keys.js';
 import { KIMI_MODELS, type KimiPath } from '../kimi/upstream.js';
 
 type Shape = 'openai' | 'anthropic';
@@ -31,6 +32,24 @@ async function pipeBody(upstream: Response, reply: ServerResponse): Promise<void
   } finally { reader.releaseLock(); }
 }
 
+/** Applies the caller's API key settings: a fixed model and Kimi's thinking switch. */
+export function applyKimiProfile(body: Record<string, unknown>, shape: Shape, profile?: ApiKeyProfile): Record<string, unknown> {
+  if (!profile) return body;
+  const next = { ...body };
+  if (profile.model) next.model = profile.model;
+  if (profile.effort === 'off') next.thinking = { type: 'disabled' };
+  else if (profile.effort === 'on') {
+    if (shape === 'openai') next.thinking = { type: 'enabled' };
+    else {
+      // Anthropic shape needs a budget below max_tokens; keep room for the answer itself.
+      const maxTokens = Math.max(typeof next.max_tokens === 'number' ? next.max_tokens : 0, 4096);
+      next.max_tokens = maxTokens;
+      next.thinking = { type: 'enabled', budget_tokens: Math.min(16_000, maxTokens - 1024) };
+    }
+  }
+  return next;
+}
+
 function registerProxy(app: FastifyInstance, gateway: GatewayDeps, url: string, upstreamPath: KimiPath, shape: Shape): void {
   app.post(url, async (request: FastifyRequest, reply: FastifyReply) => {
     const id = generateRequestId();
@@ -46,7 +65,8 @@ function registerProxy(app: FastifyInstance, gateway: GatewayDeps, url: string, 
       const submittedAt = Date.now();
       await gateway.kimiQueue.run(async () => {
         queueWaitMs = Date.now() - submittedAt;
-        const upstream = await gateway.kimiUpstream.request(upstreamPath, 'POST', JSON.stringify(body));
+        const profile = request.apiKeyProfile;
+        const upstream = await gateway.kimiUpstream.request(upstreamPath, 'POST', JSON.stringify(applyKimiProfile(body, shape, profile)), { accountId: profile?.accountId });
         await pipeBody(upstream, reply.raw);
       });
       reply.raw.end();
@@ -67,9 +87,10 @@ export function registerKimiRoutes(app: FastifyInstance, gateway: GatewayDeps): 
     data: KIMI_MODELS.map((id) => ({ id, object: 'model', owned_by: 'kimi' })),
   }));
 
-  app.post<{ Body: { apiKey?: unknown } }>('/v1/providers/kimi/credentials', { preHandler: gateway.requireApiKey }, async (request, reply) => {
+  app.post<{ Body: { apiKey?: unknown; label?: unknown } }>('/v1/providers/kimi/credentials', { preHandler: gateway.requireApiKey }, async (request, reply) => {
     const body = request.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => key !== 'apiKey') || !isValidKimiKey(body.apiKey)) {
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => key !== 'apiKey' && key !== 'label') || !isValidKimiKey(body.apiKey)
+      || (body.label !== undefined && body.label !== '' && !isValidAccountLabel(body.label))) {
       return reply.code(400).send({ error: { type: 'invalid_request_error', message: 'Enter a valid Kimi membership key' } });
     }
     try {
@@ -82,8 +103,8 @@ export function registerKimiRoutes(app: FastifyInstance, gateway: GatewayDeps): 
         return reply.code(rejected ? 400 : 502).send({ error: { type: rejected ? 'invalid_request_error' : 'provider_error', message: rejected ? 'Kimi rejected this key' : 'Could not reach Kimi to verify the key' } });
       }
     }
-    await gateway.kimiConnection.saveKey(body.apiKey);
-    return { connected: true };
+    const accountId = await gateway.kimiConnection.saveKey(body.apiKey, typeof body.label === 'string' ? body.label : undefined);
+    return { connected: true, accountId };
   });
 
   app.delete('/v1/providers/kimi/credentials', { preHandler: gateway.requireApiKey }, async () => {

@@ -68,6 +68,10 @@ The Claude card gives you the two things another app asks for:
 
 Just paste those two values into the other app's settings. That's the entire integration.
 
+**More than one account.** Each provider tile shows the account it is using right now. The **Accounts** card lists every account you added: click **Use this account** to switch. To add another Claude account, run `claude setup-token` in a terminal, sign in with that account, and paste the token it prints. For ChatGPT click **Add ChatGPT account** (sign out of ChatGPT in your browser first, or use a private window). For Kimi paste another membership key.
+
+**More than one API key.** Under **API Access**, click **+ New key** to make another key for the same provider. Each key can be set to always use one account, one model, and one effort or thinking level. For example, one key for n8n on a fast model with thinking off, and another for coding on the strongest model with high effort. Leave a setting on Default to let the app choose.
+
 ---
 
 ## 4. Using your key in another app (e.g., n8n)

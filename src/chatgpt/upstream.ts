@@ -7,13 +7,14 @@ const API_ROOT = 'https://api.openai.com/v1';
 export class ChatGptUpstream {
   constructor(private readonly connection: ChatGptConnection, private readonly http: OAuthFetch = fetch) {}
 
-  private async accessToken(): Promise<string> {
-    try { return await this.connection.getAccessToken(); }
-    catch { throw new ApiError('credential_error', 'Connect ChatGPT to use this route'); }
+  private async accessToken(accountId?: string): Promise<{ registrationId: string; token: string }> {
+    try { return await this.connection.getAccessToken(accountId); }
+    catch { throw new ApiError('credential_error', accountId ? 'Reconnect the ChatGPT account this API key uses, or pick another account for the key' : 'Connect ChatGPT to use this route'); }
   }
 
-  async request(path: '/models' | '/responses', method: 'GET' | 'POST', body?: string): Promise<Response> {
-    const token = await this.accessToken();
+  /** Uses the active account, or `accountId` when the caller's API key is pinned to one. */
+  async request(path: '/models' | '/responses', method: 'GET' | 'POST', body?: string, accountId?: string): Promise<Response> {
+    const { registrationId, token } = await this.accessToken(accountId);
     let response: Response;
     try {
       response = await this.http(`${API_ROOT}${path}`, {
@@ -27,16 +28,16 @@ export class ChatGptUpstream {
     if (response.status === 429) {
       const retry = Number(response.headers.get('retry-after'));
       const retryAfterSeconds = Number.isFinite(retry) && retry > 0 ? Math.min(retry, 3600) : undefined;
-      this.connection.noteLimit(retryAfterSeconds);
-      const plan = await this.connection.planLabel();
+      this.connection.noteLimit(registrationId, retryAfterSeconds);
+      const plan = await this.connection.planLabel(registrationId);
       throw new ApiError('usage_limit_error', `ChatGPT${plan ? ` ${plan} plan` : ''} usage limit reached`, retryAfterSeconds ? { retryAfterSeconds } : {});
     }
     if (!response.ok) throw new ApiError('provider_error', 'ChatGPT upstream error');
     return response;
   }
 
-  async listModels(): Promise<{ models: Array<{ slug: string; display_name: string }> }> {
-    const response = await this.request('/models', 'GET');
+  async listModels(accountId?: string): Promise<{ models: Array<{ slug: string; display_name: string }> }> {
+    const response = await this.request('/models', 'GET', undefined, accountId);
     const text = await response.text();
     if (text.length > 2_000_000) throw new ApiError('provider_error', 'ChatGPT model catalog too large');
     let data: unknown;

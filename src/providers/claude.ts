@@ -2,7 +2,7 @@ import { createSdkMcpServer, query, tool, type CanUseTool, type Options, type Qu
 import { z } from 'zod';
 import { ApiError } from '../errors/api-error.js';
 import { jsonSchemaObjectToZodRawShape } from '../utils/json-schema-to-zod.js';
-import type { ClaudeProvider, CredentialStatus, InternalClaudeEvent, InternalClaudeRequest, InternalClaudeResponse, InternalMessage, InternalToolCall, InternalToolDefinition } from './types.js';
+import type { ClaudeAuth, ClaudeProvider, CredentialStatus, InternalClaudeEvent, InternalClaudeRequest, InternalClaudeResponse, InternalMessage, InternalToolCall, InternalToolDefinition } from './types.js';
 
 // Every query() call is isolated from this machine's own Claude Code config:
 //  - tools: []            no Bash/Read/Write/etc — MVP is plain chat/messages,
@@ -19,16 +19,22 @@ const BASE_OPTIONS: Options = { tools: [], settingSources: [] };
 const TOOL_SERVER_NAME = 'gateway_tools';
 const TOOL_PREFIX = `mcp__${TOOL_SERVER_NAME}__`;
 
-// Cached from the most recent SDKRateLimitEvent seen on any call (spikes/FINDINGS.md).
-// A dedicated, typed signal for the account's subscription usage-pool status —
+// Cached from the most recent SDKRateLimitEvent seen per account (spikes/FINDINGS.md).
+// A dedicated, typed signal for each account's subscription usage-pool status —
 // distinct from the gateway's own concurrency queue (concurrency/queue.ts).
-let lastRateLimitInfo: { status: 'allowed' | 'allowed_warning' | 'rejected'; resetsAt?: number } | null = null;
+type RateLimitInfo = { status: 'allowed' | 'allowed_warning' | 'rejected'; resetsAt?: number };
+const lastRateLimitInfo = new Map<string, RateLimitInfo>();
+const MACHINE_LOGIN = 'default';
 
-function checkRateLimitGate(): void {
-  if (lastRateLimitInfo?.status === 'rejected') {
-    const retryAfterSeconds = lastRateLimitInfo.resetsAt ? Math.max(1, Math.round((lastRateLimitInfo.resetsAt - Date.now()) / 1000)) : undefined;
-    throw new ApiError('usage_limit_error', 'Claude account usage limit reached for the current window', { retryAfterSeconds });
-  }
+function checkRateLimitGate(accountId: string): void {
+  const info = lastRateLimitInfo.get(accountId);
+  if (info?.status !== 'rejected') return;
+  // resetsAt units are undocumented; values below 1e12 can only be Unix seconds.
+  const resetsAtMs = info.resetsAt === undefined ? undefined : info.resetsAt < 1e12 ? info.resetsAt * 1000 : info.resetsAt;
+  // No query runs while blocked, so nothing else would ever clear a window that has already reset.
+  if (resetsAtMs !== undefined && resetsAtMs <= Date.now()) { lastRateLimitInfo.delete(accountId); return; }
+  const retryAfterSeconds = resetsAtMs ? Math.max(1, Math.round((resetsAtMs - Date.now()) / 1000)) : undefined;
+  throw new ApiError('usage_limit_error', 'Claude account usage limit reached for the current window', { retryAfterSeconds });
 }
 
 /** Maps SDKAssistantMessageError / SDKResultError subtypes to the gateway's six categories (spikes/FINDINGS.md). */
@@ -131,13 +137,17 @@ function buildOptions(request: InternalClaudeRequest, extra: Options = {}): Opti
     model: request.model,
     systemPrompt: request.system,
     resume,
+    ...(request.effort === 'off' ? { thinking: { type: 'disabled' as const } } : request.effort ? { effort: request.effort } : {}),
+    ...(request.auth?.env ? { env: request.auth.env } : {}),
     ...extra,
   };
 }
 
+const accountOf = (request: InternalClaudeRequest): string => request.auth?.accountId ?? MACHINE_LOGIN;
+
 export class AgentSdkClaudeProvider implements ClaudeProvider {
   async sendMessage(request: InternalClaudeRequest): Promise<InternalClaudeResponse> {
-    checkRateLimitGate();
+    checkRateLimitGate(accountOf(request));
     const prompt = buildPrompt(request.messages);
     const collected: SDKMessage[] = [];
     let sessionId: string | undefined;
@@ -156,7 +166,7 @@ export class AgentSdkClaudeProvider implements ClaudeProvider {
           actualModel = (msg as any).model;
         }
         if (msg.type === 'rate_limit_event') {
-          lastRateLimitInfo = (msg as any).rate_limit_info;
+          lastRateLimitInfo.set(accountOf(request), (msg as any).rate_limit_info);
         }
         if (msg.type === 'assistant' && (msg as any).error) {
           throw mapSdkError((msg as any).error);
@@ -201,7 +211,7 @@ export class AgentSdkClaudeProvider implements ClaudeProvider {
   }
 
   async *streamMessage(request: InternalClaudeRequest): AsyncIterable<InternalClaudeEvent> {
-    checkRateLimitGate();
+    checkRateLimitGate(accountOf(request));
     const prompt = buildPrompt(request.messages);
     let sessionId: string | undefined;
     let startEmitted = false;
@@ -226,7 +236,7 @@ export class AgentSdkClaudeProvider implements ClaudeProvider {
           continue;
         }
         if (msg.type === 'rate_limit_event') {
-          lastRateLimitInfo = (msg as any).rate_limit_info;
+          lastRateLimitInfo.set(accountOf(request), (msg as any).rate_limit_info);
           continue;
         }
         if (msg.type === 'assistant' && (msg as any).error) {
@@ -269,8 +279,8 @@ export class AgentSdkClaudeProvider implements ClaudeProvider {
     }
   }
 
-  async checkCredentials(): Promise<CredentialStatus> {
-    const q = query({ prompt: 'ping', options: BASE_OPTIONS });
+  async checkCredentials(auth?: ClaudeAuth): Promise<CredentialStatus> {
+    const q = query({ prompt: 'ping', options: { ...BASE_OPTIONS, ...(auth?.env ? { env: auth.env } : {}) } });
     try {
       const info = await q.accountInfo();
       for await (const _ of q) {

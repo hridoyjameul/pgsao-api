@@ -1,4 +1,5 @@
 import type { ProviderStatus } from '../providers/registry.js';
+import { UnknownAccountError, type AccountSummary, type ProviderAccounts } from '../accounts/types.js';
 import type { ChatGptAccount, ChatGptCredentialStore } from './credential-store.js';
 import { CHATGPT_RESOURCE, type OAuthFetch } from './oauth.js';
 
@@ -10,53 +11,92 @@ function planName(planType: string): string {
   return planType.charAt(0).toUpperCase() + planType.slice(1);
 }
 
-export class ChatGptConnection {
+function accountLabel(account: ChatGptAccount): string {
+  return account.email || `ChatGPT account ${account.registrationId.slice(0, 8)}`;
+}
+
+export class ChatGptConnection implements ProviderAccounts {
   private refreshing?: { registrationId: string; promise: Promise<string> };
   private disconnecting = false;
-  private limitedUntil = 0;
+  private readonly limitedUntil = new Map<string, number>();
 
   constructor(private readonly store: ChatGptCredentialStore, private readonly http: OAuthFetch = fetch) {}
 
   async status(): Promise<ProviderStatus['connection']> {
     const state = await this.store.load();
     const account = state.accounts.find((item) => item.registrationId === state.selectedRegistrationId);
-    const registrations = state.accounts.map((item) => ({ registrationId: item.registrationId, label: item.email || `ChatGPT account ${item.registrationId.slice(0, 8)}`, selected: item.registrationId === state.selectedRegistrationId }));
+    const registrations = state.accounts.map((item) => ({ registrationId: item.registrationId, label: accountLabel(item), selected: item.registrationId === state.selectedRegistrationId }));
     if (!account) return { state: 'not_configured', registrations };
     const plan = account.planType ? ` (${planName(account.planType)})` : '';
-    const limit = this.limitedUntil > Date.now() ? ` - limit reached until ${new Date(this.limitedUntil).toLocaleTimeString()}` : '';
+    const until = this.limitedUntil.get(account.registrationId) ?? 0;
+    const limit = until > Date.now() ? ` - limit reached until ${new Date(until).toLocaleTimeString()}` : '';
     return account.accessToken && account.refreshToken
       ? { state: 'connected', detail: `${account.email || 'ChatGPT account connected'}${plan}${limit}`, registrations }
       : { state: 'disconnected', detail: account.email || 'Reconnect ChatGPT', registrations };
   }
 
-  /** Plan label like "Free" for the selected account, or undefined when unknown. */
-  async planLabel(): Promise<string | undefined> {
+  async list(): Promise<AccountSummary[]> {
     const state = await this.store.load().catch(() => undefined);
-    const planType = state?.accounts.find((item) => item.registrationId === state.selectedRegistrationId)?.planType;
+    if (!state) return [];
+    return state.accounts.map((item) => ({
+      id: item.registrationId,
+      label: accountLabel(item),
+      ...(item.planType ? { detail: `${planName(item.planType)} plan` } : {}),
+      active: item.registrationId === state.selectedRegistrationId,
+      connected: Boolean(item.accessToken && item.refreshToken),
+    }));
+  }
+
+  /** Switches the active account without signing in again. */
+  async select(registrationId: string): Promise<void> {
+    await this.store.update((state) => {
+      if (!state.accounts.some((item) => item.registrationId === registrationId)) throw new UnknownAccountError();
+      state.selectedRegistrationId = registrationId;
+    });
+  }
+
+  /** Revokes (best effort) and forgets one account; the next remaining account becomes active. */
+  async remove(registrationId: string): Promise<void> {
+    const state = await this.store.load();
+    if (!state.accounts.some((item) => item.registrationId === registrationId)) throw new UnknownAccountError();
+    await this.revokeAndClear(registrationId);
+    await this.store.update((latest) => {
+      latest.accounts = latest.accounts.filter((item) => item.registrationId !== registrationId);
+      if (latest.selectedRegistrationId === registrationId) latest.selectedRegistrationId = latest.accounts[0]?.registrationId;
+    });
+    this.limitedUntil.delete(registrationId);
+  }
+
+  /** Plan label like "Free" for the given (default: selected) account, or undefined when unknown. */
+  async planLabel(registrationId?: string): Promise<string | undefined> {
+    const state = await this.store.load().catch(() => undefined);
+    const planType = state?.accounts.find((item) => item.registrationId === (registrationId ?? state.selectedRegistrationId))?.planType;
     return planType ? planName(planType) : undefined;
   }
 
-  noteLimit(retryAfterSeconds?: number): void {
-    this.limitedUntil = Date.now() + (retryAfterSeconds ?? 300) * 1000;
+  noteLimit(registrationId: string, retryAfterSeconds?: number): void {
+    this.limitedUntil.set(registrationId, Date.now() + (retryAfterSeconds ?? 300) * 1000);
   }
 
-  async getAccessToken(): Promise<string> {
+  /** Token for the selected account, or for `registrationId` when an API key is pinned to that account. */
+  async getAccessToken(registrationId?: string): Promise<{ registrationId: string; token: string }> {
     if (this.disconnecting) throw new Error('Reconnect ChatGPT');
     const state = await this.store.load();
-    const account = state.accounts.find((item) => item.registrationId === state.selectedRegistrationId);
+    const account = state.accounts.find((item) => item.registrationId === (registrationId ?? state.selectedRegistrationId));
     if (!account?.accessToken || !account.refreshToken) throw new Error('Reconnect ChatGPT');
-    if (account.expiresAt > Date.now() + 60_000) return account.accessToken;
+    const result = (token: string) => ({ registrationId: account.registrationId, token });
+    if (account.expiresAt > Date.now() + 60_000) return result(account.accessToken);
     if (this.refreshing?.registrationId === account.registrationId) {
       const token = await this.refreshing.promise;
       if (this.disconnecting) throw new Error('Reconnect ChatGPT');
-      return token;
+      return result(token);
     }
     const promise = this.refresh(account);
     this.refreshing = { registrationId: account.registrationId, promise };
     try {
       const token = await promise;
       if (this.disconnecting) throw new Error('Reconnect ChatGPT');
-      return token;
+      return result(token);
     } finally { if (this.refreshing?.promise === promise) this.refreshing = undefined; }
   }
 
@@ -107,12 +147,19 @@ export class ChatGptConnection {
     });
   }
 
+  /** Signs the selected account out (keeps it listed so it can be reconnected). */
   async disconnect(): Promise<{ remoteRevocationConfirmed: boolean }> {
+    const state = await this.store.load();
+    if (!state.selectedRegistrationId) return { remoteRevocationConfirmed: true };
+    return this.revokeAndClear(state.selectedRegistrationId);
+  }
+
+  private async revokeAndClear(registrationId: string): Promise<{ remoteRevocationConfirmed: boolean }> {
     this.disconnecting = true;
     try {
       await this.refreshing?.promise.catch(() => {});
       const state = await this.store.load();
-      const account = state.accounts.find((item) => item.registrationId === state.selectedRegistrationId);
+      const account = state.accounts.find((item) => item.registrationId === registrationId);
       if (!account?.refreshToken) return { remoteRevocationConfirmed: true };
       let confirmed = false;
       for (let attempt = 0; attempt < 3 && !confirmed; attempt++) {

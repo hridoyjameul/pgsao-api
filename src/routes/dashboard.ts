@@ -197,6 +197,14 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-word; }
   .notice { margin-top: 8px; color: var(--muted); font-size: 13px; }
   #sessionsCard[hidden] + #snippetCard { grid-column: 1 / -1; }
+  .tile .acct { font-size: 11.5px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 17px; }
+  .acctline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
+  .keyset { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 12px; margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); align-items: end; }
+  .keyset label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .keyset input, .keyset select { background: var(--card); }
+  td.actions { text-align: right; white-space: nowrap; }
+  td.actions button { padding: 4px 10px; font-size: 12.5px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--soft); padding: 1px 5px; border-radius: 5px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -219,6 +227,11 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     <h2>Available AI Providers</h2>
     <div id="providerTiles" class="tiles"><div class="muted">Loading providers&hellip;</div></div>
     <div id="notice" class="notice"></div>
+  </section>
+
+  <section class="card" id="accountsCard" hidden>
+    <h2 id="accountsTitle">Accounts</h2>
+    <div id="accountsBody"></div>
   </section>
 
   <div class="grid2">
@@ -271,7 +284,9 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   };
   var providers = [];
   var selected = null;
-  var keys = {};
+  var profiles = {};
+  var selectedKey = {};
+  var models = {};
   var keyVisible = false;
   var urlShape = {};
   var snippetTab = {};
@@ -296,7 +311,10 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     if (method) init.method = method;
     if (body) init.body = JSON.stringify(body);
     return fetch(path, init).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (!r.ok) {
+        // Prefer the gateway's own error message over a bare status code.
+        return r.json().catch(function () { return {}; }).then(function (b) { throw new Error((b && b.error && b.error.message) || ('HTTP ' + r.status)); });
+      }
       return r.json();
     });
   }
@@ -322,6 +340,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
       return '<div class="tile' + (p.id === selected ? ' selected' : '') + '" data-provider="' + esc(p.id) + '">' +
         (ICONS[p.id] || '') + '<div class="name">' + esc(p.displayName) + '</div>' +
         '<div class="badge"><span class="dot ' + s.dot + '"></span>' + esc(s.badge) + '</div>' +
+        '<div class="acct" title="Active account">' + esc(activeAccount(p) ? activeAccount(p).label : '') + '</div>' +
         '<button class="tile-action ' + (s.primary ? 'primary' : s.outline ? 'outline' : '') + '"' + (s.disabled ? ' disabled' : '') + '>' + esc(s.action) + '</button></div>';
     }).join('');
     Array.prototype.forEach.call(box.querySelectorAll('.tile'), function (tile) {
@@ -332,7 +351,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
         select(id);
         var p = find(id), s = tileState(p);
         if (s.disabled) return;
-        if (p.setupAction === 'enter_key') { $('advanced').open = true; }
+        if (p.setupAction === 'enter_key') { var ac = $('accountsCard'); if (ac.scrollIntoView) ac.scrollIntoView({ behavior: 'smooth' }); }
         else if (s.connect) startConnect(null);
         else if (p.api.ready) setServing(id, !p.serving);
       };
@@ -368,15 +387,26 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     });
   }
 
+  function activeAccount(p) { return (p.accounts || []).filter(function (a) { return a.active; })[0] || null; }
+  function accountName(p, id) {
+    var a = (p.accounts || []).filter(function (x) { return x.id === id; })[0];
+    return a ? a.label : 'removed account';
+  }
+  function chooseAccount(p, accountId) {
+    api('/v1/providers/' + p.id + '/accounts/' + encodeURIComponent(accountId) + '/select', 'POST')
+      .then(function () { $('notice').textContent = p.displayName + ' now uses ' + accountName(p, accountId) + '.'; loadProviders(); })
+      .catch(function (e) { $('notice').textContent = 'Could not switch account: ' + e.message; });
+  }
+
   function renderApiAccess(p) {
     $('apiAccessTitle').textContent = 'API Access (' + p.displayName + ')';
     var body = $('apiAccessBody');
     if (!p.api.ready) {
       var why = p.setupAction === 'coming_soon' ? 'Coming soon. ' + p.displayName + ' is not available in this version yet.'
-        : p.id === 'chatgpt' ? 'Connect a paid ChatGPT subscription account (free accounts do not work) to get a ChatGPT Base URL and API key.'
-        : p.id === 'kimi' ? 'Add a paid Kimi Code membership API key under Advanced to get a Kimi Base URL and API key. Free accounts do not work.'
+        : p.id === 'chatgpt' ? 'Connect a paid ChatGPT subscription account (free accounts do not work) under Accounts to get a ChatGPT Base URL and API key.'
+        : p.id === 'kimi' ? 'Add a paid Kimi Code membership API key under Accounts to get a Kimi Base URL and API key. Free accounts do not work.'
         : p.setupAction === 'enable_route' ? 'Enable a Claude compatibility route in .env, then restart.'
-        : 'Log in to ' + p.displayName + ' on this computer, then reload this page.';
+        : 'Log in to ' + p.displayName + ' on this computer (or add an account under Accounts), then reload this page.';
       body.innerHTML = '<div class="muted">' + esc(why) + '</div>';
       return;
     }
@@ -385,26 +415,170 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     if (!tabs.some(function (t) { return t.shape === active; })) active = tabs[0] && tabs[0].shape;
     urlShape[p.id] = active;
     var current = tabs.filter(function (t) { return t.shape === active; })[0];
-    body.innerHTML =
+    var acct = activeAccount(p);
+    var accounts = p.accounts || [];
+    var acctLine = acct ? '<div class="acctline"><span class="dot ' + (acct.connected ? 'ok' : 'bad') + '"></span> Connected account: <strong id="activeAccount">' + esc(acct.label) + '</strong>' +
+      (accounts.length > 1 ? ' <select id="switchAccount" aria-label="Switch account">' + accounts.map(function (a) { return '<option value="' + esc(a.id) + '"' + (a.active ? ' selected' : '') + '>' + esc(a.label) + '</option>'; }).join('') + '</select>' : '') + '</div>' : '';
+    body.innerHTML = acctLine +
       '<div id="urlTabs" class="tabs">' + tabs.map(function (t) { return '<button data-shape="' + esc(t.shape) + '" class="' + (t.shape === active ? 'active' : '') + '">' + esc(t.label) + '</button>'; }).join('') + '</div>' +
       '<div class="row"><input type="text" id="baseUrl" class="mono" readonly value="' + esc(current ? current.url : '') + '"><button id="copyUrl">Copy</button></div>' +
-      '<div class="label">API Key</div>' +
-      '<div class="row"><input type="password" id="apiKey" class="mono" readonly value="' + esc(keys[p.id] || '') + '"><button id="toggleKey">' + (keyVisible ? 'Hide' : 'Show') + '</button><button id="copyKey">Copy</button><button id="rotateKey">Regenerate</button></div>' +
-      '<div class="muted" style="margin-top:6px">This key only works for ' + esc(p.displayName) + '.</div>';
-    $('apiKey').type = keyVisible ? 'text' : 'password';
+      '<div id="keySection"></div>';
     Array.prototype.forEach.call(body.querySelectorAll('#urlTabs button'), function (b) {
       b.onclick = function () { urlShape[p.id] = b.getAttribute('data-shape'); renderedSig = ''; renderSelected(); };
     });
     $('copyUrl').onclick = function () { copyToClipboard($('baseUrl').value, this); };
+    var sw = $('switchAccount');
+    if (sw) sw.onchange = function () { chooseAccount(p, sw.value); };
+    renderKeySection(p);
+    if (!profiles[p.id]) loadKeys(p.id);
+  }
+
+  function loadKeys(id, selectKeyId) {
+    return api('/v1/providers/' + id + '/keys').then(function (r) {
+      profiles[id] = r.keys || [];
+      if (selectKeyId) selectedKey[id] = selectKeyId;
+      var p = find(id);
+      if (p && selected === id && p.api.ready) renderKeySection(p);
+    }).catch(function () {});
+  }
+
+  function currentKey(p) {
+    var list = profiles[p.id] || [];
+    var k = list.filter(function (x) { return x.id === selectedKey[p.id]; })[0] || list[0] || null;
+    if (k) selectedKey[p.id] = k.id;
+    return k;
+  }
+
+  function keySummary(p, k) {
+    var parts = [];
+    if (k.accountId) parts.push(accountName(p, k.accountId));
+    if (k.model) parts.push(k.model);
+    if (k.effort) parts.push((p.tuning ? p.tuning.effortLabel.split(' ')[0].toLowerCase() : 'effort') + ' ' + k.effort);
+    return parts.length ? parts.join(' / ') : 'app chooses model, active account';
+  }
+
+  function renderKeySection(p) {
+    var box = $('keySection');
+    if (!box) return;
+    var list = profiles[p.id];
+    if (!list) { box.innerHTML = '<div class="label">API Keys</div><div class="muted">Loading keys&hellip;</div>'; return; }
+    var k = currentKey(p);
+    if (!k) { box.innerHTML = ''; return; }
+    var tuning = p.tuning;
+    var acct = activeAccount(p);
+    var html = '<div class="label">API Keys</div>' +
+      '<div class="row"><select id="keyPicker" aria-label="API key">' + list.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === k.id ? ' selected' : '') + '>' + esc(x.name) + ' &mdash; ' + esc(keySummary(p, x)) + '</option>'; }).join('') + '</select>' +
+      '<button id="newKey">+ New key</button></div>' +
+      '<div class="row" style="margin-top:8px"><input type="password" id="apiKey" class="mono" readonly value="' + esc(k.key) + '"><button id="toggleKey">' + (keyVisible ? 'Hide' : 'Show') + '</button><button id="copyKey">Copy</button><button id="rotateKey">Regenerate</button>' +
+      (list.length > 1 ? '<button id="deleteKey">Delete</button>' : '') + '</div>';
+    if (tuning) {
+      html += '<div class="keyset">' +
+        '<label>Name<input type="text" id="keyName" value="' + esc(k.name) + '" maxlength="64"></label>' +
+        ((p.accounts || []).length ? '<label>Account<select id="keyAccount"><option value="">Active account' + (acct ? ' (' + esc(acct.label) + ')' : '') + '</option>' +
+          p.accounts.map(function (a) { return '<option value="' + esc(a.id) + '"' + (a.id === k.accountId ? ' selected' : '') + '>Always ' + esc(a.label) + '</option>'; }).join('') + '</select></label>' : '') +
+        '<label>Model<input type="text" id="keyModel" class="mono" list="modelOptions" placeholder="App chooses" value="' + esc(k.model || '') + '"></label><datalist id="modelOptions">' +
+          (models[p.id] || []).map(function (m) { return '<option value="' + esc(m) + '"></option>'; }).join('') + '</datalist>' +
+        '<label>' + esc(tuning.effortLabel) + '<select id="keyEffort"><option value="">Default</option>' +
+          tuning.efforts.map(function (e) { return '<option value="' + esc(e) + '"' + (e === k.effort ? ' selected' : '') + '>' + esc(e) + '</option>'; }).join('') + '</select></label>' +
+        '<div><button id="saveKeySettings" class="primary">Save key settings</button></div></div>';
+    }
+    html += '<div class="muted" style="margin-top:6px">This key only works for ' + esc(p.displayName) + '. Its account, model and ' + esc(tuning ? tuning.effortLabel.toLowerCase() : 'effort') + ' apply to every request made with it; leave them on Default to let the app decide.</div>';
+    box.innerHTML = html;
+    $('apiKey').type = keyVisible ? 'text' : 'password';
+    $('keyPicker').onchange = function () { selectedKey[p.id] = this.value; renderKeySection(p); };
     $('copyKey').onclick = function () { copyToClipboard($('apiKey').value, this); };
     $('toggleKey').onclick = function () { keyVisible = !keyVisible; $('apiKey').type = keyVisible ? 'text' : 'password'; this.textContent = keyVisible ? 'Hide' : 'Show'; };
+    $('newKey').onclick = function () {
+      api('/v1/providers/' + p.id + '/keys', 'POST', {}).then(function (r) { $('notice').textContent = 'New ' + p.displayName + ' key created.'; return loadKeys(p.id, r.key.id); })
+        .catch(function (e) { $('notice').textContent = 'Could not create key: ' + e.message; });
+    };
     $('rotateKey').onclick = function () {
-      api('/v1/providers/' + p.id + '/key/rotate', 'POST').then(function (r) { keys[p.id] = r.apiKey; var el = $('apiKey'); if (el && selected === p.id) el.value = r.apiKey; })
+      api('/v1/providers/' + p.id + '/keys/' + encodeURIComponent(k.id) + '/rotate', 'POST').then(function () { return loadKeys(p.id, k.id); })
         .catch(function (e) { $('notice').textContent = 'Could not regenerate key: ' + e.message; });
     };
-    if (!keys[p.id]) {
-      api('/v1/providers/' + p.id + '/key').then(function (r) { keys[p.id] = r.apiKey; var el = $('apiKey'); if (el && selected === p.id) el.value = r.apiKey; }).catch(function () {});
+    var del = $('deleteKey');
+    if (del) del.onclick = function () {
+      // Two clicks instead of a browser dialog: the first arms the button.
+      if (del.getAttribute('data-armed') !== '1') { del.setAttribute('data-armed', '1'); del.textContent = 'Click again to delete'; return; }
+      api('/v1/providers/' + p.id + '/keys/' + encodeURIComponent(k.id), 'DELETE').then(function () { selectedKey[p.id] = null; $('notice').textContent = 'Key "' + k.name + '" deleted; apps using it stop working.'; return loadKeys(p.id); })
+        .catch(function (e) { $('notice').textContent = 'Could not delete key: ' + e.message; });
+    };
+    var save = $('saveKeySettings');
+    if (save) save.onclick = function () {
+      var patch = { name: $('keyName').value, model: $('keyModel').value.trim() || null, effort: $('keyEffort').value || null };
+      if ($('keyAccount')) patch.accountId = $('keyAccount').value || null;
+      save.disabled = true;
+      api('/v1/providers/' + p.id + '/keys/' + encodeURIComponent(k.id), 'PATCH', patch)
+        .then(function () { $('notice').textContent = 'Key settings saved.'; return loadKeys(p.id, k.id); })
+        .catch(function (e) { save.disabled = false; $('notice').textContent = 'Could not save key settings (' + e.message + ').'; });
+    };
+  }
+
+  // ---- accounts -------------------------------------------------------
+  var ACCOUNT_PROVIDERS = { claude: true, chatgpt: true, kimi: true };
+  function renderAccounts(p) {
+    var card = $('accountsCard');
+    card.hidden = !ACCOUNT_PROVIDERS[p.id];
+    if (card.hidden) return;
+    $('accountsTitle').textContent = 'Accounts (' + p.displayName + ')';
+    var accounts = p.accounts || [];
+    var html = accounts.length ? '<table><thead><tr><th>Account</th><th>Status</th><th></th></tr></thead><tbody>' + accounts.map(function (a) {
+      var actions = a.active ? '<span class="pill">Active</span>' : '<button data-use="' + esc(a.id) + '">Use this account</button>';
+      if (p.id === 'chatgpt' && !a.connected) actions += ' <button data-reconnect="' + esc(a.id) + '" class="primary">Reconnect</button>';
+      if (!(p.id === 'claude' && a.id === 'default')) actions += ' <button data-remove="' + esc(a.id) + '">Remove</button>';
+      return '<tr data-account="' + esc(a.id) + '"><td><span class="dot ' + (a.connected ? 'ok' : 'bad') + '"></span> ' + esc(a.label) + '</td><td class="muted">' + esc(a.detail || (a.connected ? 'Connected' : 'Needs reconnecting')) + '</td><td class="actions">' + actions + '</td></tr>';
+    }).join('') + '</tbody></table>' : '<div class="muted">No ' + esc(p.displayName) + ' account added yet.</div>';
+    html += '<div class="muted">The active account answers requests. A key can also be pinned to one account under API Access, so apps can use different accounts at once.</div>';
+    if (p.id === 'claude') {
+      html += '<div class="label">Add a Claude account</div>' +
+        '<div class="notice">Option 1: in a terminal run <code>claude setup-token</code>, sign in with the other account, and paste the token it prints. Option 2: run <code>CLAUDE_CONFIG_DIR=&lt;folder&gt; claude</code>, log in there, and enter that folder.</div>' +
+        '<div class="row" style="margin-top:8px"><input type="text" id="claudeLabel" placeholder="Name (optional)" maxlength="64" style="flex:0 1 180px">' +
+        '<select id="claudeKind"><option value="token">Token</option><option value="configDir">Folder</option></select>' +
+        '<input type="password" id="claudeSecret" class="mono" autocomplete="off" placeholder="sk-ant-oat01-... or folder path">' +
+        '<button id="addClaude" class="primary">Add account</button></div>';
     }
+    if (p.id === 'chatgpt') {
+      html += '<div class="label">Add a ChatGPT account</div><div class="notice"><strong>Subscription account only.</strong> Free ChatGPT accounts do not work with this API. To add another account, sign out of ChatGPT in the browser first or use a private window.</div>' +
+        '<div class="row" style="margin-top:8px"><button id="addChatgpt" class="primary">Add ChatGPT account</button></div>';
+    }
+    if (p.id === 'kimi') {
+      html += '<div class="label">Add a Kimi membership key</div><div class="notice"><strong>Paid Kimi membership key required.</strong> Free accounts do not work. Create a key in the <a href="https://www.kimi.com/code/console" target="_blank" rel="noopener noreferrer">Kimi Code console</a>; the desktop app login cannot be reused.</div>' +
+        '<div class="row" style="margin-top:8px"><input type="text" id="kimiLabel" placeholder="Name (optional)" maxlength="64" style="flex:0 1 180px"><input type="password" id="kimiKeyInput" class="mono" autocomplete="off" placeholder="Paste Kimi Code API key"><button id="saveKimiKey" class="primary">Save key</button></div>';
+    }
+    var body = $('accountsBody');
+    body.innerHTML = html;
+    Array.prototype.forEach.call(body.querySelectorAll('[data-use]'), function (b) { b.onclick = function () { chooseAccount(p, b.getAttribute('data-use')); }; });
+    Array.prototype.forEach.call(body.querySelectorAll('[data-reconnect]'), function (b) { b.onclick = function () { b.disabled = true; startConnect(b.getAttribute('data-reconnect')); }; });
+    Array.prototype.forEach.call(body.querySelectorAll('[data-remove]'), function (b) {
+      b.onclick = function () {
+        if (b.getAttribute('data-armed') !== '1') { b.setAttribute('data-armed', '1'); b.textContent = 'Click again to remove'; return; }
+        b.disabled = true;
+        var id = b.getAttribute('data-remove'), name = accountName(p, id);
+        api('/v1/providers/' + p.id + '/accounts/' + encodeURIComponent(id), 'DELETE')
+          .then(function () { $('notice').textContent = name + ' removed.'; profiles[p.id] = null; loadProviders(); })
+          .catch(function (e) { b.disabled = false; $('notice').textContent = 'Could not remove account: ' + e.message; });
+      };
+    });
+    if (p.id === 'claude') $('addClaude').onclick = function () {
+      var btn = this, secret = $('claudeSecret').value.trim();
+      if (!secret) return;
+      var payload = { label: $('claudeLabel').value.trim() };
+      payload[$('claudeKind').value] = secret;
+      btn.disabled = true;
+      $('notice').textContent = 'Checking the Claude login...';
+      api('/v1/providers/claude/accounts', 'POST', payload)
+        .then(function () { $('notice').textContent = 'Claude account added and now active.'; loadProviders(); })
+        .catch(function (e) { btn.disabled = false; $('notice').textContent = 'Could not add the Claude account (' + e.message + '). Check the token or folder.'; });
+    };
+    if (p.id === 'chatgpt') $('addChatgpt').onclick = function () { this.disabled = true; startConnect(null); };
+    if (p.id === 'kimi') $('saveKimiKey').onclick = function () {
+      var input = $('kimiKeyInput'), btn = this;
+      if (!input.value) return;
+      btn.disabled = true;
+      api('/v1/providers/kimi/credentials', 'POST', { apiKey: input.value, label: $('kimiLabel').value.trim() })
+        .then(function () { input.value = ''; $('notice').textContent = 'Kimi key saved and now active.'; loadProviders(); })
+        .catch(function (e) { btn.disabled = false; $('notice').textContent = 'Could not save Kimi key (' + e.message + '). Check the key and your membership.'; });
+    };
   }
 
   function renderSnippets(p) {
@@ -434,37 +608,11 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
         return '<tr><td>' + esc(c.shape.replace(/_/g, ' ')) + (c.legacy ? ' (legacy)' : '') + '</td><td class="mono">' + esc(window.location.origin + (c.basePath === '/' ? '' : c.basePath)) + '</td></tr>';
       }).join('') + '</tbody></table><div id="modelsLine" class="muted"></div>';
     }
-    if (p.id === 'chatgpt') {
-      var regs = (p.connection.registrations || []);
-      html += '<div class="label">ChatGPT account</div><div class="notice"><strong>Subscription account only.</strong> Free ChatGPT accounts do not work with this API.</div><div class="row"><select id="accountPicker"><option value="">Add a ChatGPT account</option>' +
-        regs.map(function (r) { return '<option value="' + esc(r.registrationId) + '"' + (r.selected ? ' selected' : '') + '>' + esc(r.label) + (r.selected ? ' (active)' : '') + '</option>'; }).join('') +
-        '</select><button id="continueChatgpt" class="primary">Continue with ChatGPT</button>' +
-        (p.connection.state === 'connected' ? '<button id="disconnectChatgpt">Disconnect ChatGPT</button>' : '') + '</div>';
+    if (p.id === 'chatgpt' && p.connection.state === 'connected') {
+      html += '<div class="row" style="margin-top:10px"><button id="disconnectChatgpt">Disconnect ChatGPT</button><span class="muted">Signs the active account out but keeps it listed for reconnecting.</span></div>';
     }
-    if (p.id === 'kimi') {
-      html += '<div class="label">Kimi membership key</div><div class="notice"><strong>Paid Kimi membership key required.</strong> Free accounts do not work. Create a key in the <a href="https://www.kimi.com/code/console" target="_blank" rel="noopener noreferrer">Kimi Code console</a>; the desktop app login cannot be reused.</div>' +
-        '<div class="row"><input type="password" id="kimiKeyInput" class="mono" autocomplete="off" placeholder="Paste Kimi Code API key"><button id="saveKimiKey" class="primary">Save key</button>' +
-        (p.connection.state !== 'not_configured' ? '<button id="removeKimiKey">Remove key</button>' : '') + '</div>';
-    }
-    html += '<div id="routeUsage"></div>';
     $('advancedBody').innerHTML = html;
-    if (p.id === 'kimi') {
-      $('saveKimiKey').onclick = function () {
-        var input = $('kimiKeyInput'), btn = this;
-        if (!input.value) return;
-        btn.disabled = true;
-        api('/v1/providers/kimi/credentials', 'POST', { apiKey: input.value })
-          .then(function () { input.value = ''; $('notice').textContent = 'Kimi key saved.'; loadProviders(); })
-          .catch(function (e) { btn.disabled = false; $('notice').textContent = 'Could not save Kimi key (' + e.message + '). Check the key and your membership.'; });
-      };
-      var rk = $('removeKimiKey');
-      if (rk) rk.onclick = function () {
-        rk.disabled = true;
-        api('/v1/providers/kimi/credentials', 'DELETE').then(function () { $('notice').textContent = 'Kimi key removed.'; loadProviders(); }).catch(function () { rk.disabled = false; });
-      };
-    }
     if (p.id === 'chatgpt') {
-      $('continueChatgpt').onclick = function () { this.disabled = true; startConnect($('accountPicker').value || null); };
       var d = $('disconnectChatgpt');
       if (d) d.onclick = function () {
         d.disabled = true;
@@ -477,7 +625,11 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     if (p.api.ready) {
       var path = p.id === 'chatgpt' ? '/chatgpt/v1/models' : p.id === 'kimi' ? '/kimi/v1/models' : '/claude/v1/models';
       api(path).then(function (m) {
-        var names = p.id === 'chatgpt' ? (m.models || []).map(function (x) { return x.display_name + ' (' + x.slug + ')'; }) : (m.data || []).map(function (x) { return x.id; });
+        var ids = p.id === 'chatgpt' ? (m.models || []).map(function (x) { return x.slug; }) : (m.data || []).map(function (x) { return x.id; });
+        var names = p.id === 'chatgpt' ? (m.models || []).map(function (x) { return x.display_name + ' (' + x.slug + ')'; }) : ids;
+        models[p.id] = ids;
+        var list = $('modelOptions');
+        if (list && selected === p.id) list.innerHTML = ids.map(function (id) { return '<option value="' + esc(id) + '"></option>'; }).join('');
         var line = $('modelsLine');
         if (line && selected === p.id) line.textContent = 'Models: ' + names.join(', ');
       }).catch(function () {});
@@ -487,10 +639,11 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   function renderSelected() {
     var p = find(selected);
     if (!p) return;
-    var sig = JSON.stringify([selected, p.api, p.connection, p.serving, p.client, p.setupAction, keyVisible]);
+    var sig = JSON.stringify([selected, p.api, p.connection, p.serving, p.client, p.setupAction, p.accounts, keyVisible]);
     if (sig === renderedSig) return;
     renderedSig = sig;
     renderApiAccess(p);
+    renderAccounts(p);
     renderSnippets(p);
     renderAdvanced(p);
     $('sessionsCard').hidden = !(p.id === 'claude' && p.api.ready);

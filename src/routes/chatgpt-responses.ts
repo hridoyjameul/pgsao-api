@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { GatewayDeps } from '../app.js';
 import { ApiError } from '../errors/api-error.js';
 import { generateRequestId } from '../utils/ids.js';
-import { ChatGptResponsesRequestSchema, forwardChatGptSse } from '../chatgpt/responses.js';
+import { applyChatGptProfile, ChatGptResponsesRequestSchema, forwardChatGptSse } from '../chatgpt/responses.js';
 import { errorToOpenAiBody } from '../translator/openai.js';
 
 function sendError(reply: FastifyReply, error: unknown): void {
@@ -28,7 +28,8 @@ export function registerChatGptResponsesRoute(app: FastifyInstance, gateway: Gat
       const submittedAt = Date.now();
       await gateway.chatGptQueue.run(async () => {
         queueWaitMs = Date.now() - submittedAt;
-        const upstream = await gateway.chatGptUpstream.request('/responses', 'POST', JSON.stringify(parsed.data));
+        const profile = request.apiKeyProfile;
+        const upstream = await gateway.chatGptUpstream.request('/responses', 'POST', JSON.stringify(applyChatGptProfile(parsed.data, profile)), profile?.accountId);
         await forwardChatGptSse(upstream, reply.raw);
       });
       reply.raw.end();
