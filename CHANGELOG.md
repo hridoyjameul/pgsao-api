@@ -2,6 +2,15 @@
 
 Versions follow [Semantic Versioning](https://semver.org/). While on 0.x, a new feature bumps the middle number and a fix bumps the last one. Each release is tagged `vX.Y.Z`.
 
+## [0.2.0] - 2026-11-08
+
+### Added
+- **Sign in with Claude** in the dashboard: add another Claude account entirely in the browser. claude.ai opens in a new tab; paste the code it shows back into the dashboard. No terminal needed, and it works in Docker too. Behind the scenes the gateway runs the official `claude auth login` into a private folder that is deleted again when the account is removed.
+- Token and folder options moved under "Other ways to add an account".
+
+### Fixed
+- Starting a sign-in no longer leaves the private credentials folder with default permissions.
+
 ## [0.1.1] - 2026-11-08
 
 ### Fixed

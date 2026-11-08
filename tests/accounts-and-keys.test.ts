@@ -22,7 +22,7 @@ function chatGptAccount(id: string, token: string, email: string): ChatGptAccoun
   return { registrationId: id, clientId: `oaiapp_${id}`, issuer: 'https://auth.openai.com', subject: `sub-${id}`, email, planType: 'plus', scopes: ['chatgpt.tokens.use.direct'], accessToken: token, refreshToken: `refresh-${id}`, idToken: 'id', expiresAt: Date.now() + 3600_000 };
 }
 
-async function fixture(opts: { chatgpt?: boolean } = {}) {
+async function fixture(opts: { chatgpt?: boolean; claudeLoginCommand?: { file: string; args: string[] } } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'pgsao-accounts-'));
   dirs.push(root);
   const chatGptStore = new ChatGptCredentialStore(join(root, 'private', 'chatgpt.json'));
@@ -48,7 +48,7 @@ async function fixture(opts: { chatgpt?: boolean } = {}) {
   } as NodeJS.ProcessEnv);
   const claudeProvider = new FakeClaudeProvider();
   claudeProvider.tokenStatuses.set(TOKEN, { ok: true, email: 'work@example.test', subscriptionType: 'max' });
-  const app = await buildApp({ config, claudeProvider, dbPath: join(root, 'gateway.db'), chatGptStore, chatGptFetch: http, kimiFetch: http });
+  const app = await buildApp({ config, claudeProvider, dbPath: join(root, 'gateway.db'), chatGptStore, chatGptFetch: http, kimiFetch: http, claudeLoginCommand: opts.claudeLoginCommand });
   const inject = (method: string, url: string, payload?: unknown, headers: Record<string, string> = master) =>
     app.inject({ method: method as 'GET', url, headers, ...(payload === undefined ? {} : { payload: payload as object }) });
   const provider = async (id: string) => (await inject('GET', '/v1/providers')).json().providers.find((p: { id: string }) => p.id === id);
@@ -221,6 +221,61 @@ describe('ChatGPT accounts', () => {
       const after = await f.provider('chatgpt');
       expect(after.accounts).toEqual([{ id: 'one', label: 'one@example.test', detail: 'Plus plan', active: true, connected: true }]);
       expect(after.connection.state).toBe('connected');
+    } finally { await f.app.close(); }
+  });
+});
+
+// Stands in for `claude auth login`: prints a sign-in link, waits for a code, writes a
+// credentials file into CLAUDE_CONFIG_DIR, and fails on the code "wrong-code-x".
+const FAKE_LOGIN = [
+  "const fs = require('fs'); const path = require('path');",
+  "process.stdout.write('Opening browser to sign in\\nIf the browser did not open, visit: https://claude.com/cai/oauth/authorize?code=true&state=abc\\nPaste code here if prompted > ');",
+  "let input = ''; process.stdin.on('data', (d) => { input += d; if (input.includes('\\n')) {",
+  "  const code = input.trim(); if (code === 'wrong-code-x') { console.error('Invalid code'); process.exit(1); }",
+  "  fs.writeFileSync(path.join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json'), JSON.stringify({ code })); process.exit(0); } });",
+].join('\n');
+
+describe('Claude browser sign-in', () => {
+  async function loginFixture() {
+    const f = await fixture({ claudeLoginCommand: { file: process.execPath, args: ['-e', FAKE_LOGIN, '--'] } });
+    const start = async () => (await f.inject('POST', '/v1/providers/claude/login')).json() as { loginId: string; url: string };
+    return { ...f, start };
+  }
+
+  it('signs in from the dashboard with a pasted code and keeps the login in a private folder', async () => {
+    const f = await loginFixture();
+    try {
+      const { loginId, url } = await f.start();
+      expect(url).toBe('https://claude.com/cai/oauth/authorize?code=true&state=abc');
+      const done = await f.inject('POST', `/v1/providers/claude/login/${loginId}`, { code: 'good-code-123#state', label: 'Work' });
+      expect(done.statusCode).toBe(200);
+      const accounts = (await f.provider('claude')).accounts;
+      expect(accounts.map((a: { label: string; active: boolean }) => [a.label, a.active])).toEqual([["test@example.com (this computer's login)", false], ['Work', true]]);
+      const dir = join(f.root, 'private', 'claude-logins', loginId);
+      expect(JSON.parse(await readFile(join(dir, '.credentials.json'), 'utf8'))).toEqual({ code: 'good-code-123#state' });
+      await f.inject('POST', '/v1/chat/completions', chat);
+      expect(f.claudeProvider.lastRequest?.auth?.env?.CLAUDE_CONFIG_DIR).toBe(dir);
+
+      // Removing the account deletes the login folder it came with.
+      await f.inject('DELETE', `/v1/providers/claude/accounts/${done.json().accountId}`);
+      await expect(readFile(join(dir, '.credentials.json'))).rejects.toThrow();
+    } finally { await f.app.close(); }
+  });
+
+  it('reports a rejected code, cleans up, and supports cancelling', async () => {
+    const f = await loginFixture();
+    try {
+      const first = await f.start();
+      const bad = await f.inject('POST', `/v1/providers/claude/login/${first.loginId}`, { code: 'wrong-code-x' });
+      expect(bad.statusCode).toBe(400);
+      expect(bad.json().error.message).toMatch(/did not accept that code/);
+      expect((await f.inject('POST', `/v1/providers/claude/login/${first.loginId}`, { code: 'good-code-123' })).json().error.message).toMatch(/expired/);
+      expect((await f.inject('POST', `/v1/providers/claude/login/${first.loginId}`, { code: 'x' })).statusCode).toBe(400);
+
+      const second = await f.start();
+      expect((await f.inject('DELETE', `/v1/providers/claude/login/${second.loginId}`)).statusCode).toBe(200);
+      expect((await f.provider('claude')).accounts).toHaveLength(1);
+      expect((await f.inject('POST', '/v1/providers/claude/login', undefined, {})).statusCode).toBe(401);
     } finally { await f.app.close(); }
   });
 });

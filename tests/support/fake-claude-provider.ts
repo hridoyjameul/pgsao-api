@@ -93,11 +93,14 @@ export class FakeClaudeProvider implements ClaudeProvider {
   /** Per-token answers for extra accounts (CLAUDE_CODE_OAUTH_TOKEN); unknown tokens are rejected like a bad login. */
   public tokenStatuses = new Map<string, CredentialStatus>();
   public checkedAuth: Array<ClaudeAuth | undefined> = [];
+  /** Answer for accounts that use their own Claude Code config folder. */
+  public configDirStatus: CredentialStatus = { ok: true, email: 'folder@example.test', subscriptionType: 'max' };
 
   async checkCredentials(auth?: ClaudeAuth): Promise<CredentialStatus> {
     this.checkedAuth.push(auth);
     const token = auth?.env?.CLAUDE_CODE_OAUTH_TOKEN;
     if (token) return this.tokenStatuses.get(token) ?? { ok: false, message: 'Invalid token' };
+    if (auth?.env?.CLAUDE_CONFIG_DIR) return this.configDirStatus;
     return this.credentialStatus;
   }
 }

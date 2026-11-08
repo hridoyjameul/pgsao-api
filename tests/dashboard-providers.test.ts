@@ -62,6 +62,8 @@ async function openDashboard(ctx: { app: { inject: (o: object) => Promise<{ body
         data = { key: target };
       } else if (target && method === 'DELETE') { list.splice(list.indexOf(target), 1); data = { keys: list }; }
     }
+    else if (route === '/v1/providers/claude/login') data = { loginId: 'login-1', url: 'https://claude.com/cai/oauth/authorize?state=t' };
+    else if (route.startsWith('/v1/providers/claude/login/')) data = { accountId: 'new', accounts: [] };
     else if (accountRoute && accountRoute[3]) { state.claudeActive = accountRoute[2]!; data = { accounts: [] }; }
     else if (accountRoute) data = { accountId: 'new', accounts: [] };
     else if (m && m[2] === 'key') data = { apiKey: KEYS[m[1]!] ?? 'sk-x' };
@@ -227,12 +229,28 @@ describe('provider-scoped dashboard', () => {
     expect(d.calls).toContainEqual({ path: '/v1/providers/claude/accounts/work', method: 'DELETE', body: undefined });
   });
 
-  it('adds a Claude account from a setup token', async () => {
+  it('still adds a Claude account from a setup token under Other ways', async () => {
     const d = await openDashboard(ctx);
-    (d.$('#claudeLabel') as unknown as { value: string }).value = 'Work';
     (d.$('#claudeSecret') as unknown as { value: string }).value = 'sk-ant-oat01-example-token-value';
     await d.click('#addClaude');
-    expect(d.calls).toContainEqual({ path: '/v1/providers/claude/accounts', method: 'POST', body: JSON.stringify({ label: 'Work', token: 'sk-ant-oat01-example-token-value' }) });
+    expect(d.calls).toContainEqual({ path: '/v1/providers/claude/accounts', method: 'POST', body: JSON.stringify({ token: 'sk-ant-oat01-example-token-value' }) });
+  });
+
+  it('adds a Claude account by signing in on claude.ai and pasting the code, with no terminal', async () => {
+    const d = await openDashboard(ctx);
+    const opened: Array<{ location: { href: string }; opener: unknown }> = [];
+    (d.win as unknown as { open: () => unknown }).open = () => { const tab = { location: { href: '' }, opener: {}, close() {} }; opened.push(tab); return tab; };
+    expect(d.text('#accountsBody')).toContain('Sign in with Claude');
+    await d.click('#claudeSignIn');
+    expect(d.calls).toContainEqual({ path: '/v1/providers/claude/login', method: 'POST', body: undefined });
+    expect(opened[0]?.location.href).toBe('https://claude.com/cai/oauth/authorize?state=t');
+    expect(d.text('#accountsBody')).toContain('Paste the code below');
+    (d.$('#claudeLabel') as unknown as { value: string }).value = 'Work';
+    (d.$('#claudeCode') as unknown as { value: string }).value = 'abc123#state';
+    await d.click('#claudeFinish');
+    expect(d.calls).toContainEqual({ path: '/v1/providers/claude/login/login-1', method: 'POST', body: JSON.stringify({ code: 'abc123#state', label: 'Work' }) });
+    expect(d.text('#notice')).toBe('Claude account added and now active.');
+    expect(d.$('#claudeSignIn')).not.toBeNull();
   });
 
   it('creates extra keys and saves each key\'s account, model and effort', async () => {

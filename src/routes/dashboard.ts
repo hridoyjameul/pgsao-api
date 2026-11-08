@@ -203,6 +203,9 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   .keyset label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
   .keyset input, .keyset select { background: var(--card); }
   td.actions { text-align: right; white-space: nowrap; }
+  ol.steps { margin: 4px 0 10px; padding-left: 20px; font-size: 13px; line-height: 1.6; }
+  details.other { margin-top: 12px; font-size: 13px; }
+  details.other > summary { cursor: pointer; color: var(--muted); }
   td.actions button { padding: 4px 10px; font-size: 12.5px; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--soft); padding: 1px 5px; border-radius: 5px; }
   [hidden] { display: none !important; }
@@ -284,6 +287,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   };
   var providers = [];
   var selected = null;
+  var claudeLogin = null;
   var profiles = {};
   var selectedKey = {};
   var models = {};
@@ -530,12 +534,24 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     }).join('') + '</tbody></table>' : '<div class="muted">No ' + esc(p.displayName) + ' account added yet.</div>';
     html += '<div class="muted">The active account answers requests. A key can also be pinned to one account under API Access, so apps can use different accounts at once.</div>';
     if (p.id === 'claude') {
-      html += '<div class="label">Add a Claude account</div>' +
-        '<div class="notice">Option 1: in a terminal run <code>claude setup-token</code>, sign in with the other account, and paste the token it prints. Option 2: run <code>CLAUDE_CONFIG_DIR=&lt;folder&gt; claude</code>, log in there, and enter that folder.</div>' +
-        '<div class="row" style="margin-top:8px"><input type="text" id="claudeLabel" placeholder="Name (optional)" maxlength="64" style="flex:0 1 180px">' +
-        '<select id="claudeKind"><option value="token">Token</option><option value="configDir">Folder</option></select>' +
+      html += '<div class="label">Add a Claude account</div>';
+      if (!claudeLogin) {
+        html += '<div class="row"><button id="claudeSignIn" class="primary">Sign in with Claude</button>' +
+          '<span class="muted">Opens claude.ai in a new tab. Sign in with the account you want to add, then paste the code it shows here.</span></div>';
+      } else {
+        html += '<ol class="steps">' +
+          '<li>Sign in on the claude.ai tab that just opened (<a href="' + esc(claudeLogin.url) + '" target="_blank" rel="noopener noreferrer">open it again</a> or <a href="#" id="copyClaudeLink">copy the link</a> into a private window). Already signed in to claude.ai as someone else? Log out there first.</li>' +
+          '<li>Click <strong>Authorize</strong>, then copy the code Claude shows.</li>' +
+          '<li>Paste the code below and click Add account.</li></ol>' +
+          '<div class="row"><input type="text" id="claudeLabel" placeholder="Name (optional)" maxlength="64" style="flex:0 1 180px">' +
+          '<input type="text" id="claudeCode" class="mono" autocomplete="off" placeholder="Paste the code from claude.ai">' +
+          '<button id="claudeFinish" class="primary">Add account</button><button id="claudeCancel">Cancel</button></div>';
+      }
+      html += '<details class="other"><summary>Other ways to add an account</summary>' +
+        '<div class="notice">Paste a token from <code>claude setup-token</code>, or a folder logged in with <code>CLAUDE_CONFIG_DIR=&lt;folder&gt; claude</code>.</div>' +
+        '<div class="row" style="margin-top:8px"><select id="claudeKind"><option value="token">Token</option><option value="configDir">Folder</option></select>' +
         '<input type="password" id="claudeSecret" class="mono" autocomplete="off" placeholder="sk-ant-oat01-... or folder path">' +
-        '<button id="addClaude" class="primary">Add account</button></div>';
+        '<button id="addClaude">Add</button></div></details>';
     }
     if (p.id === 'chatgpt') {
       html += '<div class="label">Add a ChatGPT account</div><div class="notice"><strong>Subscription account only.</strong> Free ChatGPT accounts do not work with this API. To add another account, sign out of ChatGPT in the browser first or use a private window.</div>' +
@@ -559,10 +575,50 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
           .catch(function (e) { b.disabled = false; $('notice').textContent = 'Could not remove account: ' + e.message; });
       };
     });
+    if (p.id === 'claude' && $('claudeSignIn')) $('claudeSignIn').onclick = function () {
+      var btn = this;
+      // Open the tab now, inside the click, so pop-up blockers allow it; the link arrives a moment later.
+      var tab = null;
+      try { tab = window.open('', '_blank'); if (tab) tab.opener = null; } catch (e) {}
+      btn.disabled = true;
+      $('notice').textContent = 'Starting Claude sign-in...';
+      api('/v1/providers/claude/login', 'POST').then(function (r) {
+        claudeLogin = r;
+        if (tab) { try { tab.location.href = r.url; } catch (e) {} }
+        $('notice').textContent = 'Sign in on claude.ai, then paste the code here.';
+        renderAccounts(p);
+      }).catch(function (e) {
+        if (tab) { try { tab.close(); } catch (x) {} }
+        btn.disabled = false;
+        $('notice').textContent = 'Could not start Claude sign-in: ' + e.message;
+      });
+    };
+    if (p.id === 'claude' && $('claudeFinish')) {
+      $('copyClaudeLink').onclick = function (ev) { ev.preventDefault(); copyToClipboard(claudeLogin.url, this); };
+      $('claudeCancel').onclick = function () {
+        var id = claudeLogin.loginId;
+        claudeLogin = null;
+        renderAccounts(p);
+        api('/v1/providers/claude/login/' + encodeURIComponent(id), 'DELETE').catch(function () {});
+      };
+      $('claudeFinish').onclick = function () {
+        var btn = this, code = $('claudeCode').value.trim();
+        if (!code) return;
+        btn.disabled = true;
+        $('notice').textContent = 'Checking the Claude login...';
+        api('/v1/providers/claude/login/' + encodeURIComponent(claudeLogin.loginId), 'POST', { code: code, label: $('claudeLabel').value.trim() })
+          .then(function () { claudeLogin = null; $('notice').textContent = 'Claude account added and now active.'; renderedSig = ''; loadProviders(); })
+          .catch(function (e) {
+            claudeLogin = null;
+            renderAccounts(p);
+            $('notice').textContent = 'Could not add the Claude account: ' + e.message;
+          });
+      };
+    }
     if (p.id === 'claude') $('addClaude').onclick = function () {
       var btn = this, secret = $('claudeSecret').value.trim();
       if (!secret) return;
-      var payload = { label: $('claudeLabel').value.trim() };
+      var payload = {};
       payload[$('claudeKind').value] = secret;
       btn.disabled = true;
       $('notice').textContent = 'Checking the Claude login...';

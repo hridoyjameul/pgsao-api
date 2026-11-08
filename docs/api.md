@@ -61,6 +61,7 @@ All routes need the master gateway key.
 - `POST /v1/providers/:id/accounts/:accountId/select` makes that account active. Requests use the active account unless their API key is pinned to another one.
 - `DELETE /v1/providers/:id/accounts/:accountId` removes an account (ChatGPT tokens are revoked first, best effort). Keys pinned to it fall back to the active account. Claude's `default` account (this computer's own Claude Code login) cannot be removed here.
 - `POST /v1/providers/claude/accounts` adds a Claude account: `{ "label"?: "...", "token": "<output of claude setup-token>" }` or `{ "label"?: "...", "configDir": "<absolute folder logged in with CLAUDE_CONFIG_DIR=<folder> claude>" }`. The login is checked first; a rejected one returns 400. Secrets are stored in `claude-accounts.json` (`CLAUDE_ACCOUNTS_PATH`) beside the ChatGPT credential file, owner-only.
+- Browser sign-in for Claude, no terminal: `POST /v1/providers/claude/login` returns `{ loginId, url }`; open `url`, sign in, then `POST /v1/providers/claude/login/:loginId` with `{ "code": "<code claude.ai shows>", "label"?: "..." }` adds the account. `DELETE /v1/providers/claude/login/:loginId` cancels. Returns 501 when the bundled Claude CLI is missing.
 - ChatGPT accounts are added with `POST /v1/providers/chatgpt/connect` `{}`; Kimi keys with `POST /v1/providers/kimi/credentials` `{ "apiKey": "...", "label"?: "..." }`. Both make the new account active.
 
 ## API keys

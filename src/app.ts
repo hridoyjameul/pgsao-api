@@ -29,6 +29,7 @@ import { KimiConnection, KimiKeyStore } from './kimi/connection.js';
 import { KimiUpstream } from './kimi/upstream.js';
 import { registerKimiRoutes } from './routes/kimi.js';
 import { ClaudeAccountStore } from './claude/accounts.js';
+import { ClaudeLoginManager, type LoginCommand } from './claude/login.js';
 import { registerAccountRoutes } from './routes/accounts.js';
 import { registerApiKeyRoutes } from './routes/api-keys.js';
 
@@ -36,6 +37,7 @@ export interface GatewayDeps {
   config: Config;
   claudeProvider: ClaudeProvider;
   claudeAccounts: ClaudeAccountStore;
+  claudeLogins: ClaudeLoginManager;
   sessionManager: SessionManager;
   credentialMonitor: CredentialMonitor;
   queue: ConcurrencyQueue;
@@ -63,6 +65,8 @@ export interface BuildAppOptions {
   chatGptStore?: ChatGptCredentialStore;
   chatGptFetch?: OAuthFetch;
   kimiFetch?: typeof fetch;
+  /** Override for tests: the command that performs `claude auth login`. */
+  claudeLoginCommand?: LoginCommand;
 }
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -72,6 +76,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const claudeProvider = opts.claudeProvider ?? new AgentSdkClaudeProvider();
   const sessionManager = new SessionManager(opts.dbPath ?? config.DATABASE_URL);
   const claudeAccounts = new ClaudeAccountStore(config.CLAUDE_ACCOUNTS_PATH);
+  const claudeLogins = new ClaudeLoginManager(config.CLAUDE_ACCOUNTS_PATH!, opts.claudeLoginCommand);
   const credentialMonitor = new CredentialMonitor(claudeProvider, config.CREDENTIAL_CHECK_INTERVAL_MS, claudeAccounts);
   const queue = new ConcurrencyQueue({
     maxConcurrent: config.MAX_CONCURRENT_REQUESTS,
@@ -93,13 +98,14 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const kimiConnection = new KimiConnection(new KimiKeyStore(config.KIMI_KEY_PATH!));
   const kimiUpstream = new KimiUpstream(kimiConnection, opts.kimiFetch);
   const kimiQueue = new ConcurrencyQueue({ maxConcurrent: config.MAX_CONCURRENT_REQUESTS, maxQueueSize: config.QUEUE_MAX_SIZE, requestTimeoutMs: config.REQUEST_TIMEOUT_MS });
-  for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptConnection, kimiConnection, claudeAccounts)) providerRegistry.register(adapter);
+  for (const adapter of createBuiltinAdapters(credentialMonitor, config, chatGptConnection, kimiConnection, claudeAccounts, claudeLogins)) providerRegistry.register(adapter);
 
-  const gateway: GatewayDeps = { config, claudeProvider, claudeAccounts, sessionManager, credentialMonitor, queue, requireApiKey, requireProviderKey, providerKeys, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection, chatGptUpstream, chatGptQueue, kimiConnection, kimiUpstream, kimiQueue };
+  const gateway: GatewayDeps = { config, claudeProvider, claudeAccounts, claudeLogins, sessionManager, credentialMonitor, queue, requireApiKey, requireProviderKey, providerKeys, providerRegistry, servingGate, chatGptStore, chatGptOAuth, chatGptConnection, chatGptUpstream, chatGptQueue, kimiConnection, kimiUpstream, kimiQueue };
   app.decorate('gateway', gateway);
 
   app.addHook('onClose', async () => {
     credentialMonitor.stop();
+    await claudeLogins.close();
     sessionManager.close();
   });
 

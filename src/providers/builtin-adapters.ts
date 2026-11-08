@@ -12,6 +12,7 @@ import { registerChatGptResponsesRoute } from '../routes/chatgpt-responses.js';
 import type { KimiConnection } from '../kimi/connection.js';
 import { registerKimiRoutes } from '../routes/kimi.js';
 import type { ClaudeAccountStore } from '../claude/accounts.js';
+import type { ClaudeLoginManager } from '../claude/login.js';
 import type { ProviderAccounts } from '../accounts/types.js';
 import { CLAUDE_EFFORTS } from './types.js';
 
@@ -21,7 +22,7 @@ export const KIMI_EFFORTS = ['off', 'on'] as const;
 
 type Detector = typeof detectExecutable;
 
-export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, config: Config, chatGptConnection: ChatGptConnection, kimiConnection: KimiConnection, claudeAccounts: ClaudeAccountStore, detector: Detector = detectExecutable): ProviderAdapter[] {
+export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, config: Config, chatGptConnection: ChatGptConnection, kimiConnection: KimiConnection, claudeAccounts: ClaudeAccountStore, claudeLogins: ClaudeLoginManager, detector: Detector = detectExecutable): ProviderAdapter[] {
   const detected = (name: string): ProviderStatus['client'] => ({
     state: detector(name) ? 'detected' : 'not_detected', method: `${name} on PATH`,
   });
@@ -50,7 +51,9 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
     },
     select: async (accountId) => { await claudeAccounts.select(accountId); credentialMonitor.setActive(accountId); },
     remove: async (accountId) => {
-      await claudeAccounts.remove(accountId);
+      const removed = await claudeAccounts.remove(accountId);
+      // A folder made by the dashboard sign-in holds that login; delete it with the account.
+      if (removed?.type === 'config_dir') await claudeLogins.removeFolder(removed.configDir);
       credentialMonitor.forget(accountId);
       credentialMonitor.setActive((await claudeAccounts.entries()).selectedId);
     },

@@ -130,12 +130,15 @@ export class ClaudeAccountStore {
     });
   }
 
-  async remove(accountId: string): Promise<void> {
-    if (accountId === DEFAULT_CLAUDE_ACCOUNT) throw new Error('The machine login cannot be removed here; log out with `claude /logout`');
-    await this.mutate((state) => {
-      if (!state.accounts.some((a) => a.id === accountId)) throw new UnknownAccountError();
+  /** Returns the removed account so its login folder can be cleaned up. */
+  async remove(accountId: string): Promise<StoredClaudeAccount> {
+    if (accountId === DEFAULT_CLAUDE_ACCOUNT) throw new Error("This computer's own Claude login cannot be removed here");
+    return this.mutate((state) => {
+      const account = state.accounts.find((a) => a.id === accountId);
+      if (!account) throw new UnknownAccountError();
       state.accounts = state.accounts.filter((a) => a.id !== accountId);
       if (state.selectedId === accountId) state.selectedId = undefined;
+      return account;
     });
   }
 }
