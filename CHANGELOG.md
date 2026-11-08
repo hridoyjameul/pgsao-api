@@ -2,6 +2,12 @@
 
 Versions follow [Semantic Versioning](https://semver.org/). While on 0.x, a new feature bumps the middle number and a fix bumps the last one. Each release is tagged `vX.Y.Z`.
 
+## [0.1.1] - 2026-11-08
+
+### Fixed
+- Dashboard stuck on "Could not load providers" after ChatGPT sign-in. OpenAI returns to `127.0.0.1`, which keeps its own saved key separate from `localhost`; an outdated key there failed every request. The dashboard now replaces a rejected saved key with the current one, and sign-in returns to the address it started from.
+- A failed or cancelled ChatGPT sign-in now explains why, including OpenAI's "A required permission is unavailable" (that plan cannot be shared with apps).
+
 ## [0.1.0] - 2026-11-08
 
 Multiple accounts and multiple API keys per provider. This release also covers everything committed since 0.0.2 that was never versioned.

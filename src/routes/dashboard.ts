@@ -313,7 +313,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     return fetch(path, init).then(function (r) {
       if (!r.ok) {
         // Prefer the gateway's own error message over a bare status code.
-        return r.json().catch(function () { return {}; }).then(function (b) { throw new Error((b && b.error && b.error.message) || ('HTTP ' + r.status)); });
+        return r.json().catch(function () { return {}; }).then(function (b) { var err = new Error((b && b.error && b.error.message) || ('HTTP ' + r.status)); err.status = r.status; throw err; });
       }
       return r.json();
     });
@@ -707,12 +707,32 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
       }
       renderTiles();
       renderSelected();
-    }).catch(function (e) { $('providerTiles').textContent = 'Could not load providers: ' + e.message; });
+    }).catch(function (e) {
+      // A key saved by an older install (or under another address) no longer works: fetch the current one once.
+      if (e.status === 401 && !refetchedKey) { refetchedKey = true; setKey(''); fetchKey(); return; }
+      $('providerTiles').textContent = 'Could not load providers: ' + e.message;
+    });
+  }
+
+  var refetchedKey = false;
+  function showSignInResult() {
+    var result = '';
+    try { result = new URLSearchParams(window.location.search).get('chatgpt') || ''; } catch (e) {}
+    if (!result) return;
+    try { localStorage.setItem(SELECTED_KEY, 'chatgpt'); } catch (e) {}
+    $('notice').textContent = result === 'connected'
+      ? 'ChatGPT account connected.'
+      : 'ChatGPT sign-in did not finish. If OpenAI said "A required permission is unavailable", the plan of that account cannot be shared with apps (free plans and some workspaces are not allowed): sign in with a paid Plus or Pro account instead.';
+    try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {}
   }
 
   function init() {
-    var stored = getKey();
-    if (stored) { loadProviders(); return; }
+    showSignInResult();
+    if (getKey()) { loadProviders(); return; }
+    fetchKey();
+  }
+
+  function fetchKey() {
     // First run: fetch the master key the app generated for itself.
     fetch('/v1/setup/key').then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);

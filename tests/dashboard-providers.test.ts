@@ -25,11 +25,11 @@ function providerList(chatgptConnected: boolean, serving: Record<string, boolean
   ];
 }
 
-async function openDashboard(ctx: { app: { inject: (o: object) => Promise<{ body: string }> }; baseUrl: string }, opts: { chatgptConnected?: boolean } = {}) {
+async function openDashboard(ctx: { app: { inject: (o: object) => Promise<{ body: string }> }; baseUrl: string }, opts: { chatgptConnected?: boolean; storedKey?: string; query?: string } = {}) {
   const html = (await ctx.app.inject({ method: 'GET', url: '/dashboard' })).body;
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1]!;
   const snippets = html.match(/<script id="snippets-data" type="application\/json">([\s\S]*?)<\/script>/)?.[1]!;
-  const win = new Window({ url: ctx.baseUrl + '/dashboard' });
+  const win = new Window({ url: ctx.baseUrl + '/dashboard' + (opts.query ?? '') });
   win.document.write(html.replace(/<script>[\s\S]*?<\/script>/, ''));
   const calls: Array<{ path: string; method: string; body?: string }> = [];
   const state = {
@@ -39,7 +39,7 @@ async function openDashboard(ctx: { app: { inject: (o: object) => Promise<{ body
   const profilesOf = (id: string) => (state.profiles[id] ??= [{ id: `k-${id}-1`, name: 'Default', key: KEYS[id] ?? 'sk-x', provider: id, createdAt: 1 }]);
   const navigated: string[] = [];
   const intervals: Array<() => void> = [];
-  (win as unknown as { fetch: unknown }).fetch = async (path: string, init: { method?: string; body?: string } = {}) => {
+  (win as unknown as { fetch: unknown }).fetch = async (path: string, init: { method?: string; body?: string; headers?: Record<string, string> } = {}) => {
     calls.push({ path, method: init.method ?? 'GET', body: init.body });
     const route = path.split('?')[0]!;
     let data: unknown = {};
@@ -73,12 +73,14 @@ async function openDashboard(ctx: { app: { inject: (o: object) => Promise<{ body
     else if (route === '/claude/v1/models') data = { data: [{ id: 'claude-via-gateway' }] };
     else if (route === '/chatgpt/v1/models') data = { models: [{ slug: 'gpt-test', display_name: 'GPT Test' }] };
     else if (route === '/health') data = { claude_auth_status: 'ok' };
+    else if (route === '/v1/setup/key') data = { apiKey: TEST_API_KEY };
+    if (route.startsWith('/v1/') && route !== '/v1/setup/key' && init.headers?.Authorization !== `Bearer ${TEST_API_KEY}`) { status = 401; data = { error: { message: 'Missing or invalid API key' } }; }
     else if (route === '/v1/providers/chatgpt/connect') data = { authorizationUrl: 'https://auth.openai.com/api/accounts/authorize?state=t' };
     else if (route === '/v1/providers/chatgpt/disconnect') data = { remoteRevocationConfirmed: true };
     else if (route.startsWith('/v1/sessions')) data = { id: 'sess-1' };
     return { ok: status < 400, status, json: async () => data };
   };
-  win.localStorage.setItem('pgsao_gateway_api_key', TEST_API_KEY);
+  win.localStorage.setItem('pgsao_gateway_api_key', opts.storedKey ?? TEST_API_KEY);
   (win as unknown as { setInterval: unknown }).setInterval = (cb: () => void) => { intervals.push(cb); return 1; };
   (win as unknown as { location: { assign: (u: string) => void } }).location.assign = (u: string) => { navigated.push(u); };
   win.document.getElementById('snippets-data')!.textContent = snippets;
@@ -253,6 +255,20 @@ describe('provider-scoped dashboard', () => {
     await d.click('#deleteKey');
     await d.click('#deleteKey');
     expect(d.calls).toContainEqual({ path: '/v1/providers/claude/keys/k-claude-1', method: 'DELETE', body: undefined });
+  });
+
+  it('replaces a stale saved key with the current one instead of staying stuck', async () => {
+    const d = await openDashboard(ctx, { storedKey: 'old-key-from-another-install' });
+    expect(d.calls.some((c) => c.path === '/v1/setup/key')).toBe(true);
+    expect(d.win.localStorage.getItem('pgsao_gateway_api_key')).toBe(TEST_API_KEY);
+    expect(d.win.document.querySelectorAll('.tile')).toHaveLength(5);
+  });
+
+  it('explains a failed ChatGPT sign-in and opens the ChatGPT panel', async () => {
+    const d = await openDashboard(ctx, { query: '?chatgpt=failed' });
+    expect(d.text('#notice')).toContain('A required permission is unavailable');
+    expect(d.text('#apiAccessTitle')).toBe('API Access (ChatGPT)');
+    expect(d.win.location.search).toBe('');
   });
 
   it('keeps refreshing provider status while open', async () => {

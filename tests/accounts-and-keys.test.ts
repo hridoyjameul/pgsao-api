@@ -225,6 +225,23 @@ describe('ChatGPT accounts', () => {
   });
 });
 
+describe('ChatGPT sign-in return address', () => {
+  it('returns to the loopback address the sign-in started from, never to another host', async () => {
+    const f = await fixture();
+    try {
+      const start = async (host: string) => {
+        const res = await f.app.inject({ method: 'POST', url: '/v1/providers/chatgpt/connect', headers: { ...master, host }, payload: {} });
+        return new URL(res.json().authorizationUrl).searchParams.get('state')!;
+      };
+      const back = async (state: string) => (await f.app.inject({ method: 'GET', url: `/auth/callback?state=${state}&error=access_denied`, headers: { host: '127.0.0.1:8787' } })).headers.location;
+      expect(await back(await start('localhost:8787'))).toBe('http://localhost:8787/dashboard?chatgpt=failed');
+      expect(await back(await start('127.0.0.1:8787'))).toBe('/dashboard?chatgpt=failed');
+      expect(await back(await start('evil.example:8787'))).toBe('/dashboard?chatgpt=failed');
+      expect(await back('unknown-state')).toBe('/dashboard?chatgpt=failed');
+    } finally { await f.app.close(); }
+  });
+});
+
 describe('Kimi accounts', () => {
   it('keeps several membership keys, switches between them and applies thinking per key', async () => {
     const f = await fixture();
