@@ -51,7 +51,7 @@ Alias: `GET /claude/v1/models`. Both list the Claude model alias allow-list (`sr
 
 Returns five ordered provider cards: `claude`, `chatgpt`, `gemini`, `kimi`, `qwen`. Each has a `client` detection state, `connection` state, `api.ready` flag and supported `api.capabilities`, plus `setupAction`. Capabilities are empty until a connection is ready. ChatGPT also lists safe registration IDs and labels for account selection. Gemini, Kimi, and Qwen return `coming_soon`. If both Claude compatibility routes are disabled by configuration, Claude returns `enable_route`. This route never returns the gateway key or provider tokens.
 
-Each card also has `accounts` (`[{ id, label, detail?, active, connected }]`, never a secret) and, for Claude, ChatGPT and Kimi, `tuning` (`{ efforts: [...], effortLabel }`).
+Each card also has `accounts` (`[{ id, label, detail?, active, connected }]`, never a secret), for Claude `fallback` (whether automatic account switching is on), and, for Claude, ChatGPT and Kimi, `tuning` (`{ efforts: [...], effortLabel }`).
 
 ## Accounts
 
@@ -59,8 +59,10 @@ All routes need the master gateway key.
 
 - `GET /v1/providers/:id/accounts` lists accounts for `claude`, `chatgpt` or `kimi`.
 - `POST /v1/providers/:id/accounts/:accountId/select` makes that account active. Requests use the active account unless their API key is pinned to another one.
-- `DELETE /v1/providers/:id/accounts/:accountId` removes an account (ChatGPT tokens are revoked first, best effort). Keys pinned to it fall back to the active account. Claude's `default` account (this computer's own Claude Code login) cannot be removed here.
+- `DELETE /v1/providers/:id/accounts/:accountId` removes an account (ChatGPT tokens are revoked first, best effort). Keys pinned to it fall back to the active account. Claude's `default` account (this computer's own Claude Code login) can be removed once another Claude account exists; it only leaves the list, the login on the computer is untouched. `POST /v1/providers/claude/accounts/machine-login` puts it back. The last Claude account cannot be removed.
 - `POST /v1/providers/claude/accounts` adds a Claude account: `{ "label"?: "...", "token": "<output of claude setup-token>" }` or `{ "label"?: "...", "configDir": "<absolute folder logged in with CLAUDE_CONFIG_DIR=<folder> claude>" }`. The login is checked first; a rejected one returns 400. Secrets are stored in `claude-accounts.json` (`CLAUDE_ACCOUNTS_PATH`) beside the ChatGPT credential file, owner-only.
+- Adding a Claude login (token, folder or browser sign-in) whose email is already listed returns 409 `{ error: { type: "duplicate_account", ... }, duplicate: { pendingId, email, existing: { id, label, active, connected } } }` and saves nothing yet. Answer within 15 minutes with `POST /v1/providers/claude/accounts/duplicates/:pendingId` `{ "action": "keep_old" | "replace" | "keep_both" }`. `keep_old` drops the new login. `replace` swaps the new login into the old account (same id, name and pinned keys; for the `default` login the new account takes its place and its pinned keys). `keep_both` adds it as a separate account.
+- `PUT /v1/providers/claude/fallback` `{ "enabled": true | false }` turns automatic account switching on or off (off by default). When on, a Claude request whose account has reached its usage limit is retried on the other connected accounts in list order, and an account whose login stopped working is skipped. This applies to keys pinned to an account too. Requests that use `session_id` stay on their own account.
 - Browser sign-in for Claude, no terminal: `POST /v1/providers/claude/login` returns `{ loginId, url }`; open `url`, sign in, then `POST /v1/providers/claude/login/:loginId` with `{ "code": "<code claude.ai shows>", "label"?: "..." }` adds the account. `DELETE /v1/providers/claude/login/:loginId` cancels. Returns 501 when the bundled Claude CLI is missing.
 - ChatGPT accounts are added with `POST /v1/providers/chatgpt/connect` `{}`; Kimi keys with `POST /v1/providers/kimi/credentials` `{ "apiKey": "...", "label"?: "..." }`. Both make the new account active.
 

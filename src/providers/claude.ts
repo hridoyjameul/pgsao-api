@@ -37,6 +37,12 @@ function checkRateLimitGate(accountId: string): void {
   throw new ApiError('usage_limit_error', 'Claude account usage limit reached for the current window', { retryAfterSeconds });
 }
 
+/** A failed query on an account the SDK just reported as out of usage is a usage limit, whatever the result subtype says. */
+function usageLimitOr(accountId: string, err: unknown): unknown {
+  if (lastRateLimitInfo.get(accountId)?.status !== 'rejected' || (err instanceof ApiError && err.category === 'usage_limit_error')) return err;
+  return new ApiError('usage_limit_error', 'Claude account usage limit reached for the current window');
+}
+
 /** Maps SDKAssistantMessageError / SDKResultError subtypes to the gateway's six categories (spikes/FINDINGS.md). */
 function mapSdkError(errorCode: string | undefined, resultSubtype?: string): ApiError {
   switch (errorCode) {
@@ -46,6 +52,8 @@ function mapSdkError(errorCode: string | undefined, resultSubtype?: string): Api
       return new ApiError('credential_error', `Claude authentication error: ${errorCode}`);
     case 'billing_error':
       return new ApiError('usage_limit_error', 'Claude account billing error');
+    case 'rate_limit':
+      return new ApiError('usage_limit_error', 'Claude account usage limit reached for the current window');
     case 'overloaded':
     case 'server_error':
       return new ApiError('provider_error', `Claude provider error: ${errorCode}`);
@@ -173,7 +181,7 @@ export class AgentSdkClaudeProvider implements ClaudeProvider {
         }
       }
     } catch (err) {
-      if (!interception?.capturedCalls.length) throw err;
+      if (!interception?.capturedCalls.length) throw usageLimitOr(accountOf(request), err);
       // Expected: denying+interrupting a tool call always ends the query in
       // an error-shaped result (spikes/FINDINGS.md) — not a real failure.
     }
@@ -194,7 +202,7 @@ export class AgentSdkClaudeProvider implements ClaudeProvider {
       throw new ApiError('provider_error', 'Claude query completed with no result message');
     }
     if (result.is_error) {
-      throw mapSdkError(undefined, result.subtype);
+      throw usageLimitOr(accountOf(request), mapSdkError(undefined, result.subtype));
     }
     if (!sessionId) sessionId = result.session_id;
 
@@ -252,7 +260,7 @@ export class AgentSdkClaudeProvider implements ClaudeProvider {
         if (msg.type === 'result') {
           const result = msg as any;
           if (result.is_error && !interception?.capturedCalls.length) {
-            throw mapSdkError(undefined, result.subtype);
+            throw usageLimitOr(accountOf(request), mapSdkError(undefined, result.subtype));
           }
           if (interception?.capturedCalls.length) {
             toolCallsEmitted = true;
@@ -268,7 +276,7 @@ export class AgentSdkClaudeProvider implements ClaudeProvider {
         }
       }
     } catch (err) {
-      if (!interception?.capturedCalls.length) throw err;
+      if (!interception?.capturedCalls.length) throw usageLimitOr(accountOf(request), err);
       // Denying+interrupting a tool call always ends the underlying query in
       // an error-shaped result AFTER already yielding its 'result' message
       // (spikes/FINDINGS.md) — don't re-emit if that already happened above.

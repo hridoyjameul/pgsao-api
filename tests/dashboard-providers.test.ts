@@ -5,7 +5,7 @@ import { startTestApp, TEST_API_KEY } from './support/test-server.js';
 type Json = Record<string, unknown>;
 const KEYS: Record<string, string> = { claude: 'sk-pgsao-claude-aaa', chatgpt: 'sk-pgsao-chatgpt-bbb', gemini: 'sk-pgsao-gemini-ccc' };
 
-function providerList(chatgptConnected: boolean, serving: Record<string, boolean> = {}, claudeActive = 'default'): Json[] {
+function providerList(chatgptConnected: boolean, serving: Record<string, boolean> = {}, claudeActive = 'default', fallback = false): Json[] {
   const base = { client: { state: 'not_required', method: 'x' }, accounts: [] };
   const claudeAccounts = [
     { id: 'default', label: "me@example.test (this computer's login)", detail: 'pro', active: claudeActive === 'default', connected: true },
@@ -13,7 +13,7 @@ function providerList(chatgptConnected: boolean, serving: Record<string, boolean
   ];
   return [
     { ...base, id: 'claude', displayName: 'Claude', serving: serving.claude ?? true, connection: { state: 'connected', detail: 'Claude Pro' }, setupAction: 'none',
-      accounts: claudeAccounts, tuning: { efforts: ['off', 'low', 'medium', 'high', 'xhigh', 'max'], effortLabel: 'Effort / thinking' },
+      accounts: claudeAccounts, fallback, tuning: { efforts: ['off', 'low', 'medium', 'high', 'xhigh', 'max'], effortLabel: 'Effort / thinking' },
       api: { ready: true, capabilities: [{ shape: 'openai_chat', basePath: '/v1', legacy: true }, { shape: 'anthropic_messages', basePath: '/', legacy: true }, { shape: 'openai_chat', basePath: '/claude/v1' }, { shape: 'anthropic_messages', basePath: '/claude' }] } },
     { ...base, id: 'chatgpt', displayName: 'ChatGPT', serving: serving.chatgpt ?? true,
       connection: chatgptConnected ? { state: 'connected', detail: 'owner@example.test', registrations: [{ registrationId: 'one', label: 'owner@example.test', selected: true }] } : { state: 'not_configured', registrations: [] },
@@ -33,7 +33,7 @@ async function openDashboard(ctx: { app: { inject: (o: object) => Promise<{ body
   win.document.write(html.replace(/<script>[\s\S]*?<\/script>/, ''));
   const calls: Array<{ path: string; method: string; body?: string }> = [];
   const state = {
-    chatgptConnected: opts.chatgptConnected ?? true, serving: {} as Record<string, boolean>, rotated: 0, claudeActive: 'default', created: 0,
+    chatgptConnected: opts.chatgptConnected ?? true, serving: {} as Record<string, boolean>, rotated: 0, claudeActive: 'default', created: 0, fallback: false,
     profiles: {} as Record<string, Array<Record<string, unknown>>>,
   };
   const profilesOf = (id: string) => (state.profiles[id] ??= [{ id: `k-${id}-1`, name: 'Default', key: KEYS[id] ?? 'sk-x', provider: id, createdAt: 1 }]);
@@ -48,7 +48,13 @@ async function openDashboard(ctx: { app: { inject: (o: object) => Promise<{ body
     const keyRoute = route.match(/^\/v1\/providers\/(\w+)\/keys(?:\/([\w-]+))?(\/rotate)?$/);
     const accountRoute = route.match(/^\/v1\/providers\/(\w+)\/accounts(?:\/([\w-]+))?(\/select)?$/);
     const method = init.method ?? 'GET';
-    if (route === '/v1/providers') data = { providers: providerList(state.chatgptConnected, state.serving, state.claudeActive) };
+    if (route === '/v1/providers') data = { providers: providerList(state.chatgptConnected, state.serving, state.claudeActive, state.fallback) };
+    else if (route === '/v1/providers/claude/fallback') { state.fallback = JSON.parse(init.body!).enabled; data = { enabled: state.fallback }; }
+    else if (route.startsWith('/v1/providers/claude/accounts/duplicates/')) data = { accountId: 'default', accounts: [] };
+    else if (route === '/v1/providers/claude/accounts' && init.body?.includes('same-as-me')) {
+      status = 409;
+      data = { error: { type: 'duplicate_account', message: 'me@example.test is already added' }, duplicate: { pendingId: 'p-1', email: 'me@example.test', existing: { id: 'default', label: "me@example.test (this computer's login)", active: true, connected: false } } };
+    }
     else if (keyRoute) {
       const list = profilesOf(keyRoute[1]!);
       const target = list.find((k) => k.id === keyRoute[2]);
@@ -209,7 +215,8 @@ describe('provider-scoped dashboard', () => {
     expect(d.$('#accountsCard')?.hasAttribute('hidden')).toBe(false);
     expect(d.text('#accountsTitle')).toBe('Accounts (Claude)');
     expect(d.text('tr[data-account="default"]')).toContain('Active');
-    expect(d.$('tr[data-account="default"] [data-remove]')).toBeNull();
+    // With another account listed, the machine login can be removed too.
+    expect(d.$('tr[data-account="default"] [data-remove]')).not.toBeNull();
     await d.click('tr[data-account="work"] [data-use]');
     expect(d.calls).toContainEqual({ path: '/v1/providers/claude/accounts/work/select', method: 'POST', body: undefined });
     await d.settle();
@@ -234,6 +241,27 @@ describe('provider-scoped dashboard', () => {
     (d.$('#claudeSecret') as unknown as { value: string }).value = 'sk-ant-oat01-example-token-value';
     await d.click('#addClaude');
     expect(d.calls).toContainEqual({ path: '/v1/providers/claude/accounts', method: 'POST', body: JSON.stringify({ token: 'sk-ant-oat01-example-token-value' }) });
+  });
+
+  it('asks what to keep when the added login is already listed', async () => {
+    const d = await openDashboard(ctx);
+    (d.$('#claudeSecret') as unknown as { value: string }).value = 'sk-ant-oat01-same-as-me-token-0000';
+    await d.click('#addClaude');
+    expect(d.text('.dupe')).toContain('me@example.test is already added as me@example.test (this computer\'s login) (its login has stopped working)');
+    expect(d.$('#claudeSignIn')).toBeNull();
+    await d.click('[data-dupe="replace"]');
+    expect(d.calls).toContainEqual({ path: '/v1/providers/claude/accounts/duplicates/p-1', method: 'POST', body: JSON.stringify({ action: 'replace' }) });
+    expect(d.text('#notice')).toBe('Replaced the old login for me@example.test with the new one.');
+    expect(d.$('.dupe')).toBeNull();
+  });
+
+  it('turns automatic account switching on and off', async () => {
+    const d = await openDashboard(ctx);
+    const box = d.$('#accountFallback') as unknown as { checked: boolean; onchange: () => void };
+    expect(box.checked).toBe(false);
+    box.checked = true; box.onchange(); await d.settle();
+    expect(d.calls).toContainEqual({ path: '/v1/providers/claude/fallback', method: 'PUT', body: JSON.stringify({ enabled: true }) });
+    expect((d.$('#accountFallback') as unknown as { checked: boolean }).checked).toBe(true);
   });
 
   it('adds a Claude account by signing in on claude.ai and pasting the code, with no terminal', async () => {

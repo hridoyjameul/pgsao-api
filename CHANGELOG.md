@@ -2,6 +2,18 @@
 
 Versions follow [Semantic Versioning](https://semver.org/). While on 0.x, a new feature bumps the middle number and a fix bumps the last one. Each release is tagged `vX.Y.Z`.
 
+## [0.3.0] - 2026-11-10
+
+### Added
+- Automatic account switching for Claude: when the active account reaches its usage limit, requests move to the next connected Claude account (streaming too, before any output is sent). An account whose login stopped working is skipped. Turn it on or off under Accounts; off by default.
+- Signing in with a Claude account that is already listed no longer adds a second copy silently. The dashboard shows the existing entry and asks: keep the old login, use the new one and remove the old, or keep both. Works even when the old login has expired, using the email saved when it last worked.
+
+### Changed
+- This computer's Claude login can be removed once another Claude account exists, and added back under "Other ways to add an account". The last Claude account cannot be removed.
+
+### Fixed
+- A Claude usage-limit refusal during a request was reported as a provider error (502); it is now a usage limit error (429).
+
 ## [0.2.1] - 2026-11-08
 
 ### Fixed

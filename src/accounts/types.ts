@@ -15,6 +15,8 @@ export interface ProviderAccounts {
   list(): Promise<AccountSummary[]>;
   select(accountId: string): Promise<void>;
   remove(accountId: string): Promise<void>;
+  /** Present when the provider can move a request to another account once the chosen one hits its usage limit. */
+  fallback?: { enabled(): Promise<boolean>; set(enabled: boolean): Promise<void> };
 }
 
 export class UnknownAccountError extends Error {

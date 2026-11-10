@@ -169,7 +169,6 @@ describe('Claude accounts', () => {
       await f.inject('POST', '/v1/chat/completions', chat, bearer(pinned.key));
       expect(f.claudeProvider.lastRequest?.auth?.accountId).toBe(workId);
 
-      expect((await f.inject('DELETE', '/v1/providers/claude/accounts/default')).statusCode).toBe(400);
       expect((await f.inject('POST', '/v1/providers/claude/accounts/nope/select')).statusCode).toBe(404);
       expect((await f.inject('DELETE', `/v1/providers/claude/accounts/${workId}`)).statusCode).toBe(200);
       // The pin is cleared, so the key falls back to the active account instead of failing.
@@ -189,6 +188,134 @@ describe('Claude accounts', () => {
       const res = await f.inject('POST', '/v1/chat/completions', chat);
       expect(res.statusCode).toBe(503);
       expect((await f.provider('claude')).accounts.find((a: { id: string }) => a.id === workId)).toMatchObject({ label: 'Work', connected: false, detail: 'Not logged in' });
+    } finally { await f.app.close(); }
+  });
+});
+
+describe('Claude account removal, duplicates and fallback', () => {
+  const OTHER = 'sk-ant-oat01-other-account-token-000';
+  const SAME_AS_MACHINE = 'sk-ant-oat01-same-as-machine-token-00';
+  const labels = async (f: Awaited<ReturnType<typeof fixture>>) =>
+    (await f.provider('claude')).accounts.map((a: { label: string; active: boolean }) => [a.label, a.active]);
+
+  it('removes the machine login once another account exists, and can put it back', async () => {
+    const f = await fixture();
+    try {
+      expect((await f.inject('DELETE', '/v1/providers/claude/accounts/default')).json().error.message).toMatch(/Add another Claude account/);
+      const workId = (await f.inject('POST', '/v1/providers/claude/accounts', { token: TOKEN, activate: false })).json().accountId;
+      const pinned = (await f.inject('POST', '/v1/providers/claude/keys', { accountId: 'default' })).json().key;
+
+      expect((await f.inject('DELETE', '/v1/providers/claude/accounts/default')).statusCode).toBe(200);
+      expect(await labels(f)).toEqual([['work@example.test', true]]);
+      await f.inject('POST', '/v1/chat/completions', chat, bearer(pinned.key));
+      expect(f.claudeProvider.lastRequest?.auth?.accountId).toBe(workId);
+      // The only account left cannot be removed.
+      expect((await f.inject('DELETE', `/v1/providers/claude/accounts/${workId}`)).statusCode).toBe(400);
+      expect((await f.inject('POST', '/v1/providers/claude/accounts/default/select')).statusCode).toBe(404);
+
+      expect((await f.inject('POST', '/v1/providers/claude/accounts/machine-login')).statusCode).toBe(200);
+      expect(await labels(f)).toEqual([["test@example.com (this computer's login)", true], ['work@example.test', false]]);
+    } finally { await f.app.close(); }
+  });
+
+  it('asks before adding a login that is already listed: keep old, replace, or keep both', async () => {
+    const f = await fixture();
+    f.claudeProvider.tokenStatuses.set(SAME_AS_MACHINE, { ok: true, email: 'TEST@example.com', subscriptionType: 'pro' });
+    try {
+      const pinned = (await f.inject('POST', '/v1/providers/claude/keys', { accountId: 'default' })).json().key;
+      const ask = async () => {
+        const res = await f.inject('POST', '/v1/providers/claude/accounts', { token: SAME_AS_MACHINE });
+        expect(res.statusCode).toBe(409);
+        expect(res.json().duplicate).toMatchObject({ email: 'TEST@example.com', existing: { id: 'default' } });
+        expect(JSON.stringify(res.json())).not.toContain(SAME_AS_MACHINE);
+        return res.json().duplicate.pendingId as string;
+      };
+      const choose = (pendingId: string, action: string) => f.inject('POST', `/v1/providers/claude/accounts/duplicates/${pendingId}`, { action });
+
+      // Keep old: nothing is added.
+      const first = await ask();
+      expect((await choose(first, 'keep_old')).statusCode).toBe(200);
+      expect(await labels(f)).toEqual([["test@example.com (this computer's login)", true]]);
+      expect((await choose(first, 'keep_old')).statusCode).toBe(404);
+      expect((await choose(await ask(), 'maybe')).statusCode).toBe(400);
+
+      // Replace: the new login takes the machine login's place, active state and pinned keys.
+      expect((await choose(await ask(), 'replace')).statusCode).toBe(200);
+      expect(await labels(f)).toEqual([['TEST@example.com', true]]);
+      await f.inject('POST', '/v1/chat/completions', chat, bearer(pinned.key));
+      expect(f.claudeProvider.lastRequest?.auth?.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(SAME_AS_MACHINE);
+
+      // A login matching a stored account replaces it in place: same id, name and pins.
+      const accountId = (await f.provider('claude')).accounts[0].id;
+      f.claudeProvider.tokenStatuses.set(OTHER, { ok: true, email: 'test@example.com' });
+      const again = await f.inject('POST', '/v1/providers/claude/accounts', { token: OTHER });
+      expect(again.json().duplicate.existing.id).toBe(accountId);
+      expect((await choose(again.json().duplicate.pendingId, 'replace')).json().accountId).toBe(accountId);
+      await f.inject('POST', '/v1/chat/completions', chat, bearer(pinned.key));
+      expect(f.claudeProvider.lastRequest?.auth).toMatchObject({ accountId, env: { CLAUDE_CODE_OAUTH_TOKEN: OTHER } });
+
+      // Keep both; the machine login cannot come back as a third copy.
+      const both = await f.inject('POST', '/v1/providers/claude/accounts', { token: SAME_AS_MACHINE });
+      expect((await choose(both.json().duplicate.pendingId, 'keep_both')).statusCode).toBe(200);
+      expect((await f.provider('claude')).accounts).toHaveLength(2);
+      expect((await f.inject('POST', '/v1/providers/claude/accounts/machine-login')).json().error.message).toMatch(/already added/);
+    } finally { await f.app.close(); }
+  });
+
+  it('recognizes a duplicate of an account whose login has expired', async () => {
+    const f = await fixture();
+    try {
+      const workId = (await f.inject('POST', '/v1/providers/claude/accounts', { token: TOKEN })).json().accountId;
+      f.claudeProvider.tokenStatuses.set(TOKEN, { ok: false, message: 'OAuth token has expired' });
+      await f.app.gateway.credentialMonitor.checkNow();
+      f.claudeProvider.tokenStatuses.set(OTHER, { ok: true, email: 'work@example.test' });
+      const res = await f.inject('POST', '/v1/providers/claude/accounts', { token: OTHER });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().duplicate.existing).toMatchObject({ id: workId, connected: false });
+    } finally { await f.app.close(); }
+  });
+
+  it('moves to the next account at a usage limit when fallback is on', async () => {
+    const f = await fixture();
+    try {
+      f.claudeProvider.tokenStatuses.set(OTHER, { ok: true, email: 'other@example.test' });
+      const workId = (await f.inject('POST', '/v1/providers/claude/accounts', { token: TOKEN })).json().accountId;
+      const otherId = (await f.inject('POST', '/v1/providers/claude/accounts', { token: OTHER, activate: false })).json().accountId;
+      f.claudeProvider.usageLimited.add(workId);
+
+      // Off by default: the limit reaches the caller.
+      expect((await f.provider('claude')).fallback).toBe(false);
+      expect((await f.inject('POST', '/v1/chat/completions', chat)).statusCode).toBe(429);
+
+      expect((await f.inject('PUT', '/v1/providers/claude/fallback', { enabled: 'yes' })).statusCode).toBe(400);
+      expect((await f.inject('PUT', '/v1/providers/claude/fallback', { enabled: true })).json()).toEqual({ enabled: true });
+      expect((await f.provider('claude')).fallback).toBe(true);
+
+      const ok = await f.inject('POST', '/v1/chat/completions', chat);
+      expect(ok.statusCode).toBe(200);
+      expect(f.claudeProvider.lastRequest?.auth?.accountId).toBe('default');
+
+      // Streaming moves too, and the refused account's start event never reaches the caller.
+      f.claudeProvider.usageLimited.add('default');
+      const streamed = await f.inject('POST', '/v1/messages', { model: 'claude-sonnet-5', max_tokens: 50, stream: true, messages: [{ role: 'user', content: 'Hi' }] });
+      expect(streamed.statusCode).toBe(200);
+      expect(streamed.body).not.toContain('limited-session');
+      expect(streamed.body).toContain('message_stop');
+      expect(f.claudeProvider.lastRequest?.auth?.accountId).toBe(otherId);
+
+      // A conversation kept with session_id stays on its account.
+      expect((await f.inject('POST', '/v1/chat/completions', { ...chat, session_id: 'kept-session' })).statusCode).toBe(429);
+
+      // Every account at its limit: the caller gets the limit error.
+      f.claudeProvider.usageLimited.add(otherId);
+      expect((await f.inject('POST', '/v1/chat/completions', chat)).statusCode).toBe(429);
+
+      // An active account whose login stopped working is skipped too.
+      f.claudeProvider.usageLimited.clear();
+      f.claudeProvider.tokenStatuses.set(TOKEN, { ok: false, message: 'Not logged in' });
+      await f.app.gateway.credentialMonitor.checkNow();
+      expect((await f.inject('POST', '/v1/chat/completions', chat)).statusCode).toBe(200);
+      expect(f.claudeProvider.lastRequest?.auth?.accountId).toBe('default');
     } finally { await f.app.close(); }
   });
 });
@@ -259,6 +386,24 @@ describe('Claude browser sign-in', () => {
       // Removing the account deletes the login folder it came with.
       await f.inject('DELETE', `/v1/providers/claude/accounts/${done.json().accountId}`);
       await expect(readFile(join(dir, '.credentials.json'))).rejects.toThrow();
+    } finally { await f.app.close(); }
+  });
+
+  it('holds a sign-in of an already listed account until the user chooses, and drops its folder when the old login is kept', async () => {
+    const f = await loginFixture();
+    try {
+      const first = await f.start();
+      expect((await f.inject('POST', `/v1/providers/claude/login/${first.loginId}`, { code: 'good-code-123' })).statusCode).toBe(200);
+      const second = await f.start();
+      const dup = await f.inject('POST', `/v1/providers/claude/login/${second.loginId}`, { code: 'good-code-456' });
+      expect(dup.statusCode).toBe(409);
+      expect(dup.json().duplicate).toMatchObject({ email: 'folder@example.test', existing: { label: 'folder@example.test' } });
+      const dir = join(f.root, 'private', 'claude-logins', second.loginId);
+      expect(await readFile(join(dir, '.credentials.json'), 'utf8')).toContain('good-code-456');
+
+      await f.inject('POST', `/v1/providers/claude/accounts/duplicates/${dup.json().duplicate.pendingId}`, { action: 'keep_old' });
+      await expect(readFile(join(dir, '.credentials.json'))).rejects.toThrow();
+      expect((await f.provider('claude')).accounts).toHaveLength(2);
     } finally { await f.app.close(); }
   });
 

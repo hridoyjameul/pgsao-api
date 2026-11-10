@@ -45,6 +45,9 @@ export class CredentialMonitor {
     }));
     this.statuses.clear();
     for (const [id, status] of results) this.statuses.set(id, status);
+    // Kept so a duplicate sign-in is still recognized after a login expires.
+    const emails = new Map(results.flatMap(([id, status]) => (status.ok && status.email ? [[id, status.email] as const] : [])));
+    if (emails.size) await this.accounts.rememberEmails(emails).catch(() => {});
     return this.status;
   }
 

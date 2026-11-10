@@ -122,6 +122,13 @@ export class ProviderKeyStore {
     if (changed) this.persist();
   }
 
+  /** Moves keys pinned to one account onto another (an account replaced by a new login of the same person). */
+  repinAccount(provider: ProviderId, fromAccountId: string, toAccountId: string): void {
+    let changed = false;
+    for (const p of this.profiles) if (p.provider === provider && p.accountId === fromAccountId) { p.accountId = toAccountId; changed = true; }
+    if (changed) this.persist();
+  }
+
   /** The provider's first key (the single-key API kept for older dashboards and scripts). */
   get(provider: ProviderId): string {
     return this.list(provider)[0]!.key;

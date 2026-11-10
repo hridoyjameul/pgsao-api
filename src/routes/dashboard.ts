@@ -205,6 +205,9 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   td.actions { text-align: right; white-space: nowrap; }
   ol.steps { margin: 4px 0 10px; padding-left: 20px; font-size: 13px; line-height: 1.6; }
   details.other { margin-top: 12px; font-size: 13px; }
+  .dupe { margin-top: 10px; padding: 12px; border: 1px solid var(--warn); border-radius: 10px; background: var(--soft); font-size: 13px; }
+  .dupe .row { margin-top: 10px; }
+  label.toggle { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; cursor: pointer; }
   details.other > summary { cursor: pointer; color: var(--muted); }
   td.actions button { padding: 4px 10px; font-size: 12.5px; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--soft); padding: 1px 5px; border-radius: 5px; }
@@ -288,6 +291,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   var providers = [];
   var selected = null;
   var claudeLogin = null;
+  var claudeDuplicate = null;
   var profiles = {};
   var selectedKey = {};
   var models = {};
@@ -317,7 +321,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     return fetch(path, init).then(function (r) {
       if (!r.ok) {
         // Prefer the gateway's own error message over a bare status code.
-        return r.json().catch(function () { return {}; }).then(function (b) { var err = new Error((b && b.error && b.error.message) || ('HTTP ' + r.status)); err.status = r.status; throw err; });
+        return r.json().catch(function () { return {}; }).then(function (b) { var err = new Error((b && b.error && b.error.message) || ('HTTP ' + r.status)); err.status = r.status; err.body = b; throw err; });
       }
       return r.json();
     });
@@ -529,13 +533,24 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
     var html = accounts.length ? '<table><thead><tr><th>Account</th><th>Status</th><th></th></tr></thead><tbody>' + accounts.map(function (a) {
       var actions = a.active ? '<span class="pill">Active</span>' : '<button data-use="' + esc(a.id) + '">Use this account</button>';
       if (p.id === 'chatgpt' && !a.connected) actions += ' <button data-reconnect="' + esc(a.id) + '" class="primary">Reconnect</button>';
-      if (!(p.id === 'claude' && a.id === 'default')) actions += ' <button data-remove="' + esc(a.id) + '">Remove</button>';
+      if (p.id !== 'claude' || accounts.length > 1) actions += ' <button data-remove="' + esc(a.id) + '">Remove</button>';
       return '<tr data-account="' + esc(a.id) + '"><td><span class="dot ' + (a.connected ? 'ok' : 'bad') + '"></span> ' + esc(a.label) + '</td><td class="muted">' + esc(a.detail || (a.connected ? 'Connected' : 'Needs reconnecting')) + '</td><td class="actions">' + actions + '</td></tr>';
     }).join('') + '</tbody></table>' : '<div class="muted">No ' + esc(p.displayName) + ' account added yet.</div>';
     html += '<div class="muted">The active account answers requests. A key can also be pinned to one account under API Access, so apps can use different accounts at once.</div>';
+    if (p.fallback !== undefined) {
+      html += '<label class="toggle"><input type="checkbox" id="accountFallback"' + (p.fallback ? ' checked' : '') + '> Switch to another account automatically when the active one reaches its usage limit</label>' +
+        '<div class="muted">Other connected accounts are tried in list order. Conversations kept with <code>session_id</code> stay on their own account.</div>';
+    }
     if (p.id === 'claude') {
       html += '<div class="label">Add a Claude account</div>';
-      if (!claudeLogin) {
+      if (claudeDuplicate) {
+        var d = claudeDuplicate;
+        html += '<div class="dupe"><strong>' + esc(d.email) + '</strong> is already added as <strong>' + esc(d.existing.label) + '</strong>' +
+          (d.existing.connected ? '' : ' (its login has stopped working)') + '. Both are the same Claude account.' +
+          '<div class="row"><button data-dupe="keep_old"' + (d.existing.connected ? ' class="primary"' : '') + '>Keep the old login</button>' +
+          '<button data-dupe="replace"' + (d.existing.connected ? '' : ' class="primary"') + '>Use the new login, remove the old one</button>' +
+          '<button data-dupe="keep_both">Keep both</button></div></div>';
+      } else if (!claudeLogin) {
         html += '<div class="row"><button id="claudeSignIn" class="primary">Sign in with Claude</button>' +
           '<span class="muted">Opens claude.ai in a new tab. Sign in with the account you want to add, then paste the code it shows here.</span></div>';
       } else {
@@ -551,7 +566,9 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
         '<div class="notice">Paste a token from <code>claude setup-token</code>, or a folder logged in with <code>CLAUDE_CONFIG_DIR=&lt;folder&gt; claude</code>.</div>' +
         '<div class="row" style="margin-top:8px"><select id="claudeKind"><option value="token">Token</option><option value="configDir">Folder</option></select>' +
         '<input type="password" id="claudeSecret" class="mono" autocomplete="off" placeholder="sk-ant-oat01-... or folder path">' +
-        '<button id="addClaude">Add</button></div></details>';
+        '<button id="addClaude">Add</button></div>' +
+        (accounts.some(function (a) { return a.id === 'default'; }) ? '' : '<div class="row" style="margin-top:8px"><button id="restoreMachineLogin">Add this computer’s Claude login back</button></div>') +
+        '</details>';
     }
     if (p.id === 'chatgpt') {
       html += '<div class="label">Add a ChatGPT account</div><div class="notice"><strong>Subscription account only.</strong> Free ChatGPT accounts do not work with this API. To add another account, sign out of ChatGPT in the browser first or use a private window.</div>' +
@@ -575,6 +592,42 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
           .catch(function (e) { b.disabled = false; $('notice').textContent = 'Could not remove account: ' + e.message; });
       };
     });
+    if ($('accountFallback')) $('accountFallback').onchange = function () {
+      var box = this, on = box.checked;
+      box.disabled = true;
+      api('/v1/providers/' + p.id + '/fallback', 'PUT', { enabled: on })
+        .then(function () { $('notice').textContent = on ? 'Automatic account switching is on.' : 'Automatic account switching is off.'; loadProviders(); })
+        .catch(function (e) { box.checked = !on; box.disabled = false; $('notice').textContent = 'Could not change automatic switching: ' + e.message; });
+    };
+    Array.prototype.forEach.call(body.querySelectorAll('[data-dupe]'), function (b) {
+      b.onclick = function () {
+        var action = b.getAttribute('data-dupe'), d = claudeDuplicate;
+        Array.prototype.forEach.call(body.querySelectorAll('[data-dupe]'), function (x) { x.disabled = true; });
+        api('/v1/providers/claude/accounts/duplicates/' + encodeURIComponent(d.pendingId), 'POST', { action: action })
+          .then(function () {
+            claudeDuplicate = null;
+            $('notice').textContent = action === 'keep_old' ? 'Kept the old login for ' + d.email + '.'
+              : action === 'replace' ? 'Replaced the old login for ' + d.email + ' with the new one.' : 'Kept both logins for ' + d.email + '.';
+            renderedSig = ''; loadProviders();
+          })
+          .catch(function (e) { claudeDuplicate = null; renderAccounts(p); $('notice').textContent = 'Could not save your choice: ' + e.message; });
+      };
+    });
+    if ($('restoreMachineLogin')) $('restoreMachineLogin').onclick = function () {
+      var btn = this;
+      btn.disabled = true;
+      api('/v1/providers/claude/accounts/machine-login', 'POST')
+        .then(function () { $('notice').textContent = 'This computer’s Claude login is back and now active.'; renderedSig = ''; loadProviders(); })
+        .catch(function (e) { btn.disabled = false; $('notice').textContent = 'Could not add this computer’s login: ' + e.message; });
+    };
+    /** A sign-in for someone already listed waits for the user to choose what to keep. */
+    function askAboutDuplicate(e) {
+      if (e.status !== 409 || !e.body || !e.body.duplicate) return false;
+      claudeDuplicate = e.body.duplicate;
+      renderAccounts(p);
+      $('notice').textContent = 'This Claude account is already in the list. Choose which login to keep.';
+      return true;
+    }
     if (p.id === 'claude' && $('claudeSignIn')) $('claudeSignIn').onclick = function () {
       var btn = this;
       // Open the tab now, inside the click, so pop-up blockers allow it; the link arrives a moment later.
@@ -610,6 +663,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
           .then(function () { claudeLogin = null; $('notice').textContent = 'Claude account added and now active.'; renderedSig = ''; loadProviders(); })
           .catch(function (e) {
             claudeLogin = null;
+            if (askAboutDuplicate(e)) return;
             renderAccounts(p);
             $('notice').textContent = 'Could not add the Claude account: ' + e.message;
           });
@@ -624,7 +678,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
       $('notice').textContent = 'Checking the Claude login...';
       api('/v1/providers/claude/accounts', 'POST', payload)
         .then(function () { $('notice').textContent = 'Claude account added and now active.'; loadProviders(); })
-        .catch(function (e) { btn.disabled = false; $('notice').textContent = 'Could not add the Claude account (' + e.message + '). Check the token or folder.'; });
+        .catch(function (e) { if (askAboutDuplicate(e)) return; btn.disabled = false; $('notice').textContent = 'Could not add the Claude account (' + e.message + '). Check the token or folder.'; });
     };
     if (p.id === 'chatgpt') $('addChatgpt').onclick = function () { this.disabled = true; startConnect(null); };
     if (p.id === 'kimi') $('saveKimiKey').onclick = function () {
@@ -695,7 +749,7 @@ function renderDashboard(gateway: GatewayDeps, requestHost?: string): string {
   function renderSelected() {
     var p = find(selected);
     if (!p) return;
-    var sig = JSON.stringify([selected, p.api, p.connection, p.serving, p.client, p.setupAction, p.accounts, keyVisible]);
+    var sig = JSON.stringify([selected, p.api, p.connection, p.serving, p.client, p.setupAction, p.accounts, p.fallback, keyVisible]);
     if (sig === renderedSig) return;
     renderedSig = sig;
     renderApiAccess(p);

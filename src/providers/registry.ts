@@ -17,6 +17,8 @@ export type ProviderStatus = {
   setupAction: 'none' | 'sign_in' | 'enter_key' | 'install_cli' | 'reconnect' | 'enable_route' | 'coming_soon';
   /** Every account this provider can serve with, the active one flagged. Empty for providers without account support. */
   accounts: AccountSummary[];
+  /** Whether usage-limit fallback to another account is on; absent when the provider has no fallback. */
+  fallback?: boolean;
   /** What a per-key setting may choose; absent when the provider has no per-key settings. */
   tuning?: ProviderTuning;
 };
@@ -54,7 +56,7 @@ export class ProviderRegistry {
   async listStatuses(): Promise<ProviderStatus[]> {
     return Promise.all(ORDER.filter((id) => this.adapters.has(id)).map(async (id) => {
       const adapter = this.adapters.get(id)!;
-      const [client, connection, accounts] = await Promise.all([adapter.detectClient(), adapter.getConnection(), adapter.accounts?.list().catch(() => []) ?? []]);
+      const [client, connection, accounts, fallback] = await Promise.all([adapter.detectClient(), adapter.getConnection(), adapter.accounts?.list().catch(() => []) ?? [], adapter.accounts?.fallback?.enabled().catch(() => false)]);
       const capabilities = connection.state === 'connected' ? [...adapter.capabilities] : [];
       const ready = capabilities.length > 0;
       const setupAction: ProviderStatus['setupAction'] = ready ? 'none'
@@ -64,7 +66,7 @@ export class ProviderRegistry {
             : adapter.connectionMethod === 'vendor_key' ? 'enter_key'
               : adapter.connectionMethod === 'oauth' ? 'sign_in'
                 : client.state === 'not_detected' ? 'install_cli' : 'reconnect';
-      return { id, displayName: adapter.displayName, client, connection, api: { ready, capabilities }, setupAction, accounts, ...(adapter.tuning ? { tuning: adapter.tuning } : {}) };
+      return { id, displayName: adapter.displayName, client, connection, api: { ready, capabilities }, setupAction, accounts, ...(fallback !== undefined ? { fallback } : {}), ...(adapter.tuning ? { tuning: adapter.tuning } : {}) };
     }));
   }
 

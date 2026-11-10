@@ -6,7 +6,7 @@ import { ApiError } from '../errors/api-error.js';
 import { generateRequestId } from '../utils/ids.js';
 import { assertToolSchemasSupported } from '../utils/json-schema-to-zod.js';
 import type { InternalClaudeRequest } from '../providers/types.js';
-import { claudeRequestContext } from '../claude/request-context.js';
+import { claudeRequestContext, sendWithFallback, streamWithFallback } from '../claude/request-context.js';
 
 function sendAnthropicError(reply: FastifyReply, err: unknown): void {
   if (err instanceof ApiError) {
@@ -61,7 +61,7 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
         });
         let capturedSessionId: string | undefined;
         async function* tapSessionId() {
-          for await (const event of claudeProvider.streamMessage(internalRequest)) {
+          for await (const event of streamWithFallback(claudeProvider, internalRequest, context, !!body.session_id)) {
             if (event.type === 'start') capturedSessionId = event.sessionId;
             yield event;
           }
@@ -84,7 +84,7 @@ export function registerAnthropicCompatRoute(app: FastifyInstance, gateway: Gate
       let queueWaitMs = 0;
       const response = await queue.run(async () => {
         queueWaitMs = Date.now() - submittedAt;
-        return claudeProvider.sendMessage(internalRequest);
+        return sendWithFallback(claudeProvider, internalRequest, context, !!body.session_id);
       });
 
       if (body.session_id) sessionManager.attachProviderSessionId(body.session_id, response.sessionId);

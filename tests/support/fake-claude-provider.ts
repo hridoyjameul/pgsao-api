@@ -1,3 +1,4 @@
+import { ApiError } from '../../src/errors/api-error.js';
 import type { ClaudeAuth, ClaudeProvider, CredentialStatus, InternalClaudeEvent, InternalClaudeRequest, InternalClaudeResponse } from '../../src/providers/types.js';
 
 /**
@@ -18,10 +19,17 @@ export class FakeClaudeProvider implements ClaudeProvider {
   /** When true and >1 tool is declared, propose ALL of them at once (simulating a parallel tool-call turn — see spikes/spike-07). Default false to keep existing single-tool tests' behavior unchanged. */
   public simulateParallelToolCalls = false;
   private readonly sessionSecrets = new Map<string, string>();
+  /** Account ids that answer like a Claude subscription at its usage limit. */
+  public usageLimited = new Set<string>();
+
+  private assertWithinLimit(request: InternalClaudeRequest): void {
+    if (this.usageLimited.has(request.auth?.accountId ?? 'default')) throw new ApiError('usage_limit_error', 'Claude account usage limit reached for the current window');
+  }
 
   async sendMessage(request: InternalClaudeRequest): Promise<InternalClaudeResponse> {
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     this.lastRequest = request;
+    this.assertWithinLimit(request);
     const sessionId = request.resumeSessionId ?? `fake-session-${++this.sessionCounter}`;
 
     // Phase 3 (Phase 3/NG6) tool-calling simulation: if the caller declared
@@ -78,6 +86,12 @@ export class FakeClaudeProvider implements ClaudeProvider {
   }
 
   async *streamMessage(request: InternalClaudeRequest): AsyncIterable<InternalClaudeEvent> {
+    // The real SDK announces the session before the usage-limit refusal arrives.
+    if (this.usageLimited.has(request.auth?.accountId ?? 'default')) {
+      this.lastRequest = request;
+      yield { type: 'start', sessionId: 'limited-session', model: request.model ?? 'claude-sonnet-5' };
+      this.assertWithinLimit(request);
+    }
     const response = await this.sendMessage(request);
     yield { type: 'start', sessionId: response.sessionId, model: response.model };
     if (response.toolCalls?.length) {

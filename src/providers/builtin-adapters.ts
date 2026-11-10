@@ -37,9 +37,10 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
   const claudeAccountList: ProviderAccounts = {
     list: async () => {
       const { selectedId, accounts } = await claudeAccounts.entries();
-      return accounts.map((account) => {
+      return Promise.all(accounts.map(async (account) => {
         const status = credentialMonitor.statusFor(account.id);
-        const email = status.ok ? status.email : undefined;
+        // An expired machine login still shows whose it is, so a duplicate is easy to spot.
+        const email = status.ok ? status.email : account.kind === 'machine_login' ? await claudeAccounts.emailOf(account.id) : undefined;
         return {
           id: account.id,
           label: account.kind === 'machine_login' && email ? `${email} (this computer's login)` : account.label,
@@ -47,7 +48,7 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
           active: account.id === selectedId,
           connected: status.ok,
         };
-      });
+      }));
     },
     select: async (accountId) => { await claudeAccounts.select(accountId); credentialMonitor.setActive(accountId); },
     remove: async (accountId) => {
@@ -57,6 +58,7 @@ export function createBuiltinAdapters(credentialMonitor: CredentialMonitor, conf
       credentialMonitor.forget(accountId);
       credentialMonitor.setActive((await claudeAccounts.entries()).selectedId);
     },
+    fallback: { enabled: () => claudeAccounts.fallbackEnabled(), set: (enabled) => claudeAccounts.setFallback(enabled) },
   };
 
   const claude: ProviderAdapter = {
